@@ -16,8 +16,13 @@ import {
   Modal,
   ModalBody,
   ModalHeader,
+  Nav,
+  NavItem,
+  NavLink,
   Row,
   Spinner,
+  TabContent,
+  TabPane,
 } from "reactstrap";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -61,6 +66,8 @@ const roles: Role[] = ["admin", "manager", "staff"];
 const API_USERS_GET = "https://apidb.americanplaquecompany.com/analytics/users";
 const API_USERS_ADD = "https://apidb.americanplaquecompany.com/analytics/users/add";
 const API_USERS_UPDATE = "https://apidb.americanplaquecompany.com/analytics/users/update";
+const API_USERS_CHANGE_PASSWORD =
+  "https://apidb.americanplaquecompany.com/analytics/users/change-password";
 
 const UserManagementPage: React.FC = () => {
   document.title = "User Management | APC Sales Analytics";
@@ -70,6 +77,7 @@ const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -77,6 +85,9 @@ const UserManagementPage: React.FC = () => {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeEditTab, setActiveEditTab] = useState<"details" | "password">(
+    "details"
+  );
 
   const [username, setUsername] = useState("");
   const [firstname, setFirstname] = useState("");
@@ -105,6 +116,7 @@ const UserManagementPage: React.FC = () => {
 
   const resetForm = () => {
     setEditingId(null);
+    setActiveEditTab("details");
     setUsername("");
     setFirstname("");
     setLastname("");
@@ -127,6 +139,7 @@ const UserManagementPage: React.FC = () => {
 
   const openEditModal = (user: UserRow) => {
     setEditingId(user.id);
+    setActiveEditTab("details");
     setUsername(user.username);
     setFirstname(user.firstname);
     setLastname(user.lastname);
@@ -213,7 +226,10 @@ const UserManagementPage: React.FC = () => {
         return false;
       }
 
-      if (statusFilter !== "all" && String(u.status).toLowerCase() !== statusFilter.toLowerCase()) {
+      if (
+        statusFilter !== "all" &&
+        String(u.status).toLowerCase() !== statusFilter.toLowerCase()
+      ) {
         return false;
       }
 
@@ -246,17 +262,6 @@ const UserManagementPage: React.FC = () => {
       return;
     }
 
-    if (editingId && (newPassword.trim() || confirmPassword.trim())) {
-      if (newPassword.trim().length < 8) {
-        toast.error("New password must be at least 8 characters.");
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        toast.error("Password confirmation does not match.");
-        return;
-      }
-    }
-
     const payload = {
       ...(editingId ? { id: Number(editingId) } : {}),
       username: username.trim(),
@@ -267,9 +272,6 @@ const UserManagementPage: React.FC = () => {
       role_id: Number(roleId),
       status: status.trim().toLowerCase(),
       ...(!editingId ? { password: password.trim() } : {}),
-      ...(editingId && newPassword.trim()
-        ? { password: newPassword.trim() }
-        : {}),
     };
 
     try {
@@ -288,7 +290,9 @@ const UserManagementPage: React.FC = () => {
       const data = await res.json();
 
       if (data?.status === "success") {
-        toast.success(editingId ? "User updated successfully." : "User created successfully.");
+        toast.success(
+          editingId ? "User updated successfully." : "User created successfully."
+        );
         await fetchUsers();
         setDialogOpen(false);
         resetForm();
@@ -300,6 +304,57 @@ const UserManagementPage: React.FC = () => {
       toast.error("Failed to save user.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!editingId) return;
+
+    if (!newPassword.trim()) {
+      toast.error("New password is required.");
+      return;
+    }
+
+    if (newPassword.trim().length < 8) {
+      toast.error("New password must be at least 8 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Password confirmation does not match.");
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+
+      const res = await fetch(API_USERS_CHANGE_PASSWORD, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: Number(editingId),
+          newPassword: newPassword.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data?.status === "success") {
+        toast.success(data?.message || "Password updated successfully.");
+        setNewPassword("");
+        setConfirmPassword("");
+        setDialogOpen(false);
+        resetForm();
+      } else {
+        toast.error(data?.message || "Failed to change password.");
+      }
+    } catch (err) {
+      console.error("Change password error:", err);
+      toast.error("Failed to change password.");
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -538,25 +593,243 @@ const UserManagementPage: React.FC = () => {
 
         <Modal
           isOpen={dialogOpen}
-          toggle={() => !saving && setDialogOpen(false)}
+          toggle={() => !saving && !changingPassword && setDialogOpen(false)}
           centered
         >
-          <ModalHeader toggle={() => !saving && setDialogOpen(false)}>
+          <ModalHeader toggle={() => !saving && !changingPassword && setDialogOpen(false)}>
             {editingId ? "Edit User" : "Add User"}
           </ModalHeader>
 
           <ModalBody>
-            <Row className="g-3">
-              <Col md={6}>
-                <Label className="form-label">Username *</Label>
-                <Input
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  disabled={saving}
-                />
-              </Col>
+            {editingId ? (
+              <>
+                <Nav tabs className="mb-3">
+                  <NavItem>
+                    <NavLink
+                      href="#"
+                      active={activeEditTab === "details"}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveEditTab("details");
+                      }}
+                    >
+                      Details
+                    </NavLink>
+                  </NavItem>
+                  <NavItem>
+                    <NavLink
+                      href="#"
+                      active={activeEditTab === "password"}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveEditTab("password");
+                      }}
+                    >
+                      Change Password
+                    </NavLink>
+                  </NavItem>
+                </Nav>
 
-              {!editingId ? (
+                <TabContent activeTab={activeEditTab}>
+                  <TabPane tabId="details">
+                    <Row className="g-3">
+                      <Col md={6}>
+                        <Label className="form-label">Username *</Label>
+                        <Input
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          disabled={saving || changingPassword}
+                        />
+                      </Col>
+
+                      <Col md={6}>
+                        <Label className="form-label">Email *</Label>
+                        <Input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          disabled={saving || changingPassword}
+                        />
+                      </Col>
+
+                      <Col md={6}>
+                        <Label className="form-label">First Name *</Label>
+                        <Input
+                          value={firstname}
+                          onChange={(e) => setFirstname(e.target.value)}
+                          disabled={saving || changingPassword}
+                        />
+                      </Col>
+
+                      <Col md={6}>
+                        <Label className="form-label">Last Name *</Label>
+                        <Input
+                          value={lastname}
+                          onChange={(e) => setLastname(e.target.value)}
+                          disabled={saving || changingPassword}
+                        />
+                      </Col>
+
+                      <Col md={6}>
+                        <Label className="form-label">Phone</Label>
+                        <Input
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          disabled={saving || changingPassword}
+                        />
+                      </Col>
+
+                      <Col md={6}>
+                        <Label className="form-label">Role *</Label>
+                        <Input
+                          type="select"
+                          value={roleId}
+                          onChange={(e) => setRoleId(Number(e.target.value))}
+                          disabled={saving || changingPassword}
+                        >
+                          <option value={1}>Admin</option>
+                          <option value={2}>Manager</option>
+                          <option value={3}>Staff</option>
+                        </Input>
+                      </Col>
+
+                      <Col md={12}>
+                        <Label className="form-label">Status</Label>
+                        <Input
+                          type="select"
+                          value={status}
+                          onChange={(e) => setStatus(e.target.value)}
+                          disabled={saving || changingPassword}
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </Input>
+                      </Col>
+
+                      <Col md={12} className="d-flex justify-content-end gap-2 pt-2 border-top">
+                        <Button
+                          color="light"
+                          className="border"
+                          onClick={() => setDialogOpen(false)}
+                          disabled={saving || changingPassword}
+                        >
+                          Cancel
+                        </Button>
+
+                        <Button
+                          color="primary"
+                          onClick={handleSave}
+                          disabled={
+                            saving ||
+                            changingPassword ||
+                            !hasPermission(APP_PERMISSIONS.usersManage)
+                          }
+                        >
+                          {saving ? (
+                            <span className="d-inline-flex align-items-center gap-2">
+                              <Spinner size="sm" />
+                              Saving...
+                            </span>
+                          ) : (
+                            "Update User"
+                          )}
+                        </Button>
+                      </Col>
+                    </Row>
+                  </TabPane>
+
+                  <TabPane tabId="password">
+                    <Row className="g-3">
+                      <Col md={6}>
+                        <Label className="form-label">New Password</Label>
+                        <InputGroup>
+                          <Input
+                            type={showNewPassword ? "text" : "password"}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            disabled={saving || changingPassword}
+                            placeholder="Minimum 8 characters"
+                          />
+                          <Button
+                            color="light"
+                            className="border"
+                            type="button"
+                            onClick={() => setShowNewPassword((v) => !v)}
+                            disabled={saving || changingPassword}
+                          >
+                            {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </Button>
+                        </InputGroup>
+                      </Col>
+
+                      <Col md={6}>
+                        <Label className="form-label">Confirm Password</Label>
+                        <InputGroup>
+                          <Input
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            disabled={saving || changingPassword}
+                            invalid={
+                              Boolean(confirmPassword) && confirmPassword !== newPassword
+                            }
+                          />
+                          <Button
+                            color="light"
+                            className="border"
+                            type="button"
+                            onClick={() => setShowConfirmPassword((v) => !v)}
+                            disabled={saving || changingPassword}
+                          >
+                            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </Button>
+                        </InputGroup>
+                      </Col>
+
+                      <Col md={12} className="d-flex justify-content-end gap-2 pt-2 border-top">
+                        <Button
+                          color="light"
+                          className="border"
+                          onClick={() => setDialogOpen(false)}
+                          disabled={saving || changingPassword}
+                        >
+                          Cancel
+                        </Button>
+
+                        <Button
+                          color="warning"
+                          onClick={handleChangePassword}
+                          disabled={
+                            changingPassword ||
+                            saving ||
+                            !hasPermission(APP_PERMISSIONS.usersManage)
+                          }
+                        >
+                          {changingPassword ? (
+                            <span className="d-inline-flex align-items-center gap-2">
+                              <Spinner size="sm" />
+                              Updating Password...
+                            </span>
+                          ) : (
+                            "Change Password"
+                          )}
+                        </Button>
+                      </Col>
+                    </Row>
+                  </TabPane>
+                </TabContent>
+              </>
+            ) : (
+              <Row className="g-3">
+                <Col md={6}>
+                  <Label className="form-label">Username *</Label>
+                  <Input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={saving}
+                  />
+                </Col>
+
                 <Col md={6}>
                   <Label className="form-label">Password *</Label>
                   <InputGroup>
@@ -577,19 +850,7 @@ const UserManagementPage: React.FC = () => {
                     </Button>
                   </InputGroup>
                 </Col>
-              ) : (
-                <Col md={6}>
-                  <Label className="form-label">Email *</Label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={saving}
-                  />
-                </Col>
-              )}
 
-              {!editingId && (
                 <Col md={12}>
                   <Label className="form-label">Email *</Label>
                   <Input
@@ -599,149 +860,88 @@ const UserManagementPage: React.FC = () => {
                     disabled={saving}
                   />
                 </Col>
-              )}
 
-              <Col md={6}>
-                <Label className="form-label">First Name *</Label>
-                <Input
-                  value={firstname}
-                  onChange={(e) => setFirstname(e.target.value)}
-                  disabled={saving}
-                />
-              </Col>
+                <Col md={6}>
+                  <Label className="form-label">First Name *</Label>
+                  <Input
+                    value={firstname}
+                    onChange={(e) => setFirstname(e.target.value)}
+                    disabled={saving}
+                  />
+                </Col>
 
-              <Col md={6}>
-                <Label className="form-label">Last Name *</Label>
-                <Input
-                  value={lastname}
-                  onChange={(e) => setLastname(e.target.value)}
-                  disabled={saving}
-                />
-              </Col>
+                <Col md={6}>
+                  <Label className="form-label">Last Name *</Label>
+                  <Input
+                    value={lastname}
+                    onChange={(e) => setLastname(e.target.value)}
+                    disabled={saving}
+                  />
+                </Col>
 
-              <Col md={6}>
-                <Label className="form-label">Phone</Label>
-                <Input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  disabled={saving}
-                />
-              </Col>
+                <Col md={6}>
+                  <Label className="form-label">Phone</Label>
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={saving}
+                  />
+                </Col>
 
-              <Col md={6}>
-                <Label className="form-label">Role *</Label>
-                <Input
-                  type="select"
-                  value={roleId}
-                  onChange={(e) => setRoleId(Number(e.target.value))}
-                  disabled={saving}
-                >
-                  <option value={1}>Admin</option>
-                  <option value={2}>Manager</option>
-                  <option value={3}>Staff</option>
-                </Input>
-              </Col>
+                <Col md={6}>
+                  <Label className="form-label">Role *</Label>
+                  <Input
+                    type="select"
+                    value={roleId}
+                    onChange={(e) => setRoleId(Number(e.target.value))}
+                    disabled={saving}
+                  >
+                    <option value={1}>Admin</option>
+                    <option value={2}>Manager</option>
+                    <option value={3}>Staff</option>
+                  </Input>
+                </Col>
 
-              <Col md={12}>
-                <Label className="form-label">Status</Label>
-                <Input
-                  type="select"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  disabled={saving}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </Input>
-              </Col>
+                <Col md={12}>
+                  <Label className="form-label">Status</Label>
+                  <Input
+                    type="select"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </Input>
+                </Col>
 
-              {editingId && (
-                <>
-                  <Col md={12}>
-                    <div className="border-top pt-3">
-                      <h6 className="mb-1">Change Password</h6>
-                      <p className="text-muted mb-0 small">
-                        Leave these blank if you do not want to change the user's password.
-                      </p>
-                    </div>
-                  </Col>
+                <Col md={12} className="d-flex justify-content-end gap-2 pt-2 border-top">
+                  <Button
+                    color="light"
+                    className="border"
+                    onClick={() => setDialogOpen(false)}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
 
-                  <Col md={6}>
-                    <Label className="form-label">New Password</Label>
-                    <InputGroup>
-                      <Input
-                        type={showNewPassword ? "text" : "password"}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        disabled={saving}
-                        placeholder="Minimum 8 characters"
-                      />
-                      <Button
-                        color="light"
-                        className="border"
-                        type="button"
-                        onClick={() => setShowNewPassword((v) => !v)}
-                        disabled={saving}
-                      >
-                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </Button>
-                    </InputGroup>
-                  </Col>
-
-                  <Col md={6}>
-                    <Label className="form-label">Confirm Password</Label>
-                    <InputGroup>
-                      <Input
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        disabled={saving}
-                        invalid={
-                          Boolean(confirmPassword) && confirmPassword !== newPassword
-                        }
-                      />
-                      <Button
-                        color="light"
-                        className="border"
-                        type="button"
-                        onClick={() => setShowConfirmPassword((v) => !v)}
-                        disabled={saving}
-                      >
-                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </Button>
-                    </InputGroup>
-                  </Col>
-                </>
-              )}
-
-              <Col md={12} className="d-flex justify-content-end gap-2 pt-2 border-top">
-                <Button
-                  color="light"
-                  className="border"
-                  onClick={() => setDialogOpen(false)}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-
-                <Button
-                  color="primary"
-                  onClick={handleSave}
-                  disabled={saving || !hasPermission(APP_PERMISSIONS.usersManage)}
-                >
-                  {saving ? (
-                    <span className="d-inline-flex align-items-center gap-2">
-                      <Spinner size="sm" />
-                      Saving...
-                    </span>
-                  ) : editingId ? (
-                    "Update User"
-                  ) : (
-                    "Save User"
-                  )}
-                </Button>
-              </Col>
-            </Row>
+                  <Button
+                    color="primary"
+                    onClick={handleSave}
+                    disabled={saving || !hasPermission(APP_PERMISSIONS.usersManage)}
+                  >
+                    {saving ? (
+                      <span className="d-inline-flex align-items-center gap-2">
+                        <Spinner size="sm" />
+                        Saving...
+                      </span>
+                    ) : (
+                      "Save User"
+                    )}
+                  </Button>
+                </Col>
+              </Row>
+            )}
           </ModalBody>
         </Modal>
       </Container>

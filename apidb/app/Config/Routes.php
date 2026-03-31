@@ -224,5 +224,6 @@ $routes->group('analytics', function($routes) {
 	$routes->get('users', 'AnalyticsController::users'); //get users
     $routes->post('users/add', 'AnalyticsController::addUser'); //add users
     $routes->post('users/update', 'AnalyticsController::updateUser'); //edit/update users
+    $routes->post('users/change-password', 'AnalyticsController::changeUserPassword'); //change user pass
 
 });

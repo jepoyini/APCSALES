@@ -698,7 +698,6 @@ class AnalyticsController extends ResourceController
         $phone     = trim($postData['phone'] ?? '');
         $role_id   = (int)($postData['role_id'] ?? 0);
         $status    = trim($postData['status'] ?? 'active');
-        $password  = $postData['password'] ?? '';
 
         if (!$id || !$username || !$firstname || !$lastname || !$email || !$role_id) {
             return $this->response->setJSON([
@@ -735,6 +734,7 @@ class AnalyticsController extends ResourceController
             $stmt->execute();
             $result = $stmt->get_result();
             $user   = $result->fetch_assoc();
+            $stmt->close();
 
             if (!$user) {
                 return $this->response->setJSON([
@@ -749,6 +749,7 @@ class AnalyticsController extends ResourceController
             $stmt->execute();
             $result    = $stmt->get_result();
             $duplicate = $result->fetch_assoc();
+            $stmt->close();
 
             if ($duplicate) {
                 return $this->response->setJSON([
@@ -757,65 +758,33 @@ class AnalyticsController extends ResourceController
                 ]);
             }
 
-            if ($password !== '') {
-                $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+            $sql = "UPDATE users
+                    SET username = ?,
+                        firstname = ?,
+                        lastname = ?,
+                        email = ?,
+                        phone = ?,
+                        role_id = ?,
+                        status = ?,
+                        date_updated = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ?
+                    LIMIT 1";
 
-                $sql = "UPDATE users
-                        SET username = ?,
-                            firstname = ?,
-                            lastname = ?,
-                            email = ?,
-                            phone = ?,
-                            role_id = ?,
-                            status = ?,
-                            password = ?,
-                            date_updated = NOW(),
-                            updated_at = NOW()
-                        WHERE id = ?
-                        LIMIT 1";
-
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param(
-                    "sssssissi",
-                    $username,
-                    $firstname,
-                    $lastname,
-                    $email,
-                    $phone,
-                    $role_id,
-                    $status,
-                    $hashedPassword,
-                    $id
-                );
-            } else {
-                $sql = "UPDATE users
-                        SET username = ?,
-                            firstname = ?,
-                            lastname = ?,
-                            email = ?,
-                            phone = ?,
-                            role_id = ?,
-                            status = ?,
-                            date_updated = NOW(),
-                            updated_at = NOW()
-                        WHERE id = ?
-                        LIMIT 1";
-
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param(
-                    "sssssissi",
-                    $username,
-                    $firstname,
-                    $lastname,
-                    $email,
-                    $phone,
-                    $role_id,
-                    $status,
-                    $id
-                );
-            }
-
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param(
+                "sssssisi",
+                $username,
+                $firstname,
+                $lastname,
+                $email,
+                $phone,
+                $role_id,
+                $status,
+                $id
+            );
             $stmt->execute();
+            $stmt->close();
 
             $fetch = "SELECT
                         id,
@@ -835,11 +804,80 @@ class AnalyticsController extends ResourceController
             $stmt->execute();
             $result = $stmt->get_result();
             $user   = $result->fetch_assoc();
+            $stmt->close();
 
             return $this->response->setJSON([
                 "status"  => "success",
                 "message" => "User updated successfully.",
                 "user"    => $user
+            ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => $e->getMessage()
+            ]);
+        }
+    }
+
+    public function changeUserPassword()
+    {
+        global $conn;
+
+        $postData = json_decode(file_get_contents("php://input"), true);
+        if (!$postData) {
+            $postData = $_POST;
+        }
+
+        $id          = (int)($postData['id'] ?? 0);
+        $newPassword = $postData['newPassword'] ?? "";
+
+        if (!$id || !$newPassword) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Missing required fields."
+            ]);
+        }
+
+        if (strlen($newPassword) < 8) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Password must be at least 8 characters."
+            ]);
+        }
+
+        try {
+            $sql  = "SELECT id FROM users WHERE id = ? LIMIT 1";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user   = $result->fetch_assoc();
+            $stmt->close();
+
+            if (!$user) {
+                return $this->response->setJSON([
+                    "status"  => "error",
+                    "message" => "User not found."
+                ]);
+            }
+
+            $hashedNew = password_hash($newPassword, PASSWORD_BCRYPT);
+
+            $update = "UPDATE users
+                    SET password = ?,
+                        date_updated = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ?
+                    LIMIT 1";
+            $stmt = $conn->prepare($update);
+            $stmt->bind_param("si", $hashedNew, $id);
+            $stmt->execute();
+            $stmt->close();
+
+            return $this->response->setJSON([
+                "status"  => "success",
+                "message" => "Password updated successfully."
             ]);
 
         } catch (\Throwable $e) {
