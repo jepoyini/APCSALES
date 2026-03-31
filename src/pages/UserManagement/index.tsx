@@ -65,13 +65,7 @@ const API_USERS_UPDATE = "https://apidb.americanplaquecompany.com/analytics/user
 const UserManagementPage: React.FC = () => {
   document.title = "User Management | APC Sales Analytics";
   const { hasPermission } = usePermissions();
-<<<<<<< HEAD
-  const [rolePermissions, setRolePermissions] = useState(getRolePermissionsMap());
-  const apipost = new APIClient();
-  const authUser: any = getAuthUser();
-=======
   const rolePermissions = getRolePermissionsMap();
->>>>>>> f3c493f6efbafd6738634b186c7054ae298b7e34
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,17 +194,6 @@ const UserManagementPage: React.FC = () => {
 
   useEffect(() => {
     fetchUsers();
-  }, []);
-
-  useEffect(() => {
-    const syncRolePermissions = () => {
-      setRolePermissions(getRolePermissionsMap());
-    };
-
-    window.addEventListener("permissions-updated", syncRolePermissions);
-    return () => {
-      window.removeEventListener("permissions-updated", syncRolePermissions);
-    };
   }, []);
 
   const filteredUsers = useMemo(() => {
@@ -766,9 +749,4 @@ const UserManagementPage: React.FC = () => {
   );
 };
 
-<<<<<<< HEAD
 export default UserManagementPage;
-
-=======
-export default UserManagementPage;
->>>>>>> f3c493f6efbafd6738634b186c7054ae298b7e34

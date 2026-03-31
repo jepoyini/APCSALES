@@ -776,7 +776,7 @@ class AnalyticsController extends ResourceController
 
                 $stmt = $conn->prepare($sql);
                 $stmt->bind_param(
-                    "sssssisssi",
+                    "sssssissi",
                     $username,
                     $firstname,
                     $lastname,
