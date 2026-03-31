@@ -11,7 +11,7 @@ import {
   Spinner,
 } from "reactstrap";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { format, startOfMonth, startOfQuarter, startOfYear, subDays } from "date-fns";
+import { endOfYear, format, startOfMonth, startOfQuarter, startOfYear, subDays, subYears } from "date-fns";
 import BreadCrumb from "../../Components/Common/BreadCrumb";
 
 type SiteId = "APC" | "MP" | "PNP";
@@ -93,6 +93,11 @@ const DATE_PRESETS = [
     label: "YTD",
     from: format(startOfYear(new Date()), "yyyy-MM-dd"),
     to: format(new Date(), "yyyy-MM-dd"),
+  },
+  {
+    label: "Last Year",
+    from: format(startOfYear(subYears(new Date(), 1)), "yyyy-MM-dd"),
+    to: format(endOfYear(subYears(new Date(), 1)), "yyyy-MM-dd"),
   },
 ];
 

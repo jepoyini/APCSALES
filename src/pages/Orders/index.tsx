@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   DollarSign,
   TrendingUp,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   Badge,
@@ -23,7 +24,7 @@ import {
   Row,
   Spinner,
 } from "reactstrap";
-import { format, startOfMonth, startOfQuarter, startOfYear, subDays } from "date-fns";
+import { endOfYear, format, startOfMonth, startOfQuarter, startOfYear, subDays, subYears } from "date-fns";
 import BreadCrumb from "../../Components/Common/BreadCrumb";
 import { usePermissions } from "../../Components/Hooks/UserHooks";
 import { APP_PERMISSIONS } from "../../helpers/permissions";
@@ -52,6 +53,16 @@ type Order = {
   payment_method: string;
   created_at: string;
 };
+
+type SortKey =
+  | "order_number"
+  | "customer_name"
+  | "site_id"
+  | "channel"
+  | "total"
+  | "status"
+  | "payment_method"
+  | "created_at";
 
 const SITES: Array<{ id: SiteId; name: string }> = [
   { id: "APC", name: "American Plaque Co." },
@@ -119,6 +130,11 @@ const DATE_PRESETS = [
     from: format(startOfYear(new Date()), "yyyy-MM-dd"),
     to: format(new Date(), "yyyy-MM-dd"),
   },
+  {
+    label: "Last Year",
+    from: format(startOfYear(subYears(new Date(), 1)), "yyyy-MM-dd"),
+    to: format(endOfYear(subYears(new Date(), 1)), "yyyy-MM-dd"),
+  },
 ];
 
 const OrdersPage: React.FC = () => {
@@ -135,6 +151,8 @@ const OrdersPage: React.FC = () => {
   const [datePreset, setDatePreset] = useState("Last 30 Days");
   const [fromDate, setFromDate] = useState(format(subDays(new Date(), 29), "yyyy-MM-dd"));
   const [toDate, setToDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [sortKey, setSortKey] = useState<SortKey>("created_at");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const [page, setPage] = useState(1);
   const perPage = 10;
@@ -256,8 +274,58 @@ const OrdersPage: React.FC = () => {
     setPage(1);
   }, [search, siteFilter, statusFilter, fromDate, toDate, datePreset]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
-  const paged = filtered.slice((page - 1) * perPage, page * perPage);
+  const sortedOrders = useMemo(() => {
+    const getSortableValue = (order: Order, key: SortKey) => {
+      switch (key) {
+        case "total":
+          return Number(order.total || 0);
+        case "created_at": {
+          const timestamp = new Date(order.created_at).getTime();
+          return Number.isNaN(timestamp) ? 0 : timestamp;
+        }
+        default:
+          return String(order[key] ?? "").toLowerCase();
+      }
+    };
+
+    return [...filtered].sort((a, b) => {
+      const aValue = getSortableValue(a, sortKey);
+      const bValue = getSortableValue(b, sortKey);
+
+      if (aValue < bValue) {
+        return sortDirection === "asc" ? -1 : 1;
+      }
+
+      if (aValue > bValue) {
+        return sortDirection === "asc" ? 1 : -1;
+      }
+
+      return 0;
+    });
+  }, [filtered, sortDirection, sortKey]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortKey(key);
+    setSortDirection(key === "created_at" || key === "total" ? "desc" : "asc");
+  };
+
+  const renderSortIcon = (key: SortKey) => {
+    const label = sortKey === key ? (sortDirection === "asc" ? "Ascending" : "Descending") : "Sortable";
+
+    return (
+      <span className="ms-2 d-inline-flex align-items-center text-muted" title={label}>
+        <ArrowUpDown size={14} />
+      </span>
+    );
+  };
+
+  const totalPages = Math.max(1, Math.ceil(sortedOrders.length / perPage));
+  const paged = sortedOrders.slice((page - 1) * perPage, page * perPage);
 
   const kpis = useMemo(() => {
     const ordersCount = filtered.length;
@@ -523,18 +591,58 @@ const OrdersPage: React.FC = () => {
 
             <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th>Order</th>
-                    <th>Customer</th>
-                    <th>Site</th>
-                    <th>Channel</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Payment</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
+	                <thead>
+	                  <tr>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("order_number")}>
+                          Order
+                          {renderSortIcon("order_number")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("customer_name")}>
+                          Customer
+                          {renderSortIcon("customer_name")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("site_id")}>
+                          Site
+                          {renderSortIcon("site_id")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("channel")}>
+                          Channel
+                          {renderSortIcon("channel")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("total")}>
+                          Total
+                          {renderSortIcon("total")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("status")}>
+                          Status
+                          {renderSortIcon("status")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("payment_method")}>
+                          Payment
+                          {renderSortIcon("payment_method")}
+                        </button>
+                      </th>
+	                    <th>
+                        <button type="button" className="btn btn-link btn-sm p-0 text-decoration-none text-dark fw-semibold" onClick={() => handleSort("created_at")}>
+                          Date
+                          {renderSortIcon("created_at")}
+                        </button>
+                      </th>
+	                  </tr>
+	                </thead>
 
                 <tbody>
                   {!loading &&
