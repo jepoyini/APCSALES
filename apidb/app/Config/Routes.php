@@ -222,5 +222,7 @@ $routes->group('analytics', function($routes) {
     //users endpoints
     $routes->post('users', 'AnalyticsController::users'); //get users
 	$routes->get('users', 'AnalyticsController::users'); //get users
+    $routes->post('users/add', 'AnalyticsController::addUser'); //add users
+    $routes->post('users/update', 'AnalyticsController::updateUser'); //edit/update users
 
 });

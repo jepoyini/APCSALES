@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Edit, Plus, Search, Shield, UserCog } from "lucide-react";
+import { Edit, Eye, EyeOff, Plus, Search, Shield, UserCog } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   Badge,
@@ -22,8 +22,6 @@ import {
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import BreadCrumb from "../../Components/Common/BreadCrumb";
-import { APIClient } from "../../helpers/api_helper";
-import { getAuthUser } from "../../helpers/auth_storage";
 import { usePermissions } from "../../Components/Hooks/UserHooks";
 import {
   APP_PERMISSIONS,
@@ -60,12 +58,20 @@ const ROLE_COLORS: Record<Role, string> = {
 
 const roles: Role[] = ["admin", "manager", "staff"];
 
+const API_USERS_GET = "https://apidb.americanplaquecompany.com/analytics/users";
+const API_USERS_ADD = "https://apidb.americanplaquecompany.com/analytics/users/add";
+const API_USERS_UPDATE = "https://apidb.americanplaquecompany.com/analytics/users/update";
+
 const UserManagementPage: React.FC = () => {
   document.title = "User Management | APC Sales Analytics";
   const { hasPermission } = usePermissions();
+<<<<<<< HEAD
   const [rolePermissions, setRolePermissions] = useState(getRolePermissionsMap());
   const apipost = new APIClient();
   const authUser: any = getAuthUser();
+=======
+  const rolePermissions = getRolePermissionsMap();
+>>>>>>> f3c493f6efbafd6738634b186c7054ae298b7e34
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,8 +91,13 @@ const UserManagementPage: React.FC = () => {
   const [phone, setPhone] = useState("");
   const [roleId, setRoleId] = useState<number>(3);
   const [status, setStatus] = useState("active");
+  const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const [showAddPassword, setShowAddPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const normalizeRole = (roleId: any): Role => {
     const id = Number(roleId);
@@ -94,6 +105,9 @@ const UserManagementPage: React.FC = () => {
     if (id === 2) return "manager";
     return "staff";
   };
+
+  const capitalize = (str: string) =>
+    str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
 
   const resetForm = () => {
     setEditingId(null);
@@ -104,8 +118,12 @@ const UserManagementPage: React.FC = () => {
     setPhone("");
     setRoleId(3);
     setStatus("active");
+    setPassword("");
     setNewPassword("");
     setConfirmPassword("");
+    setShowAddPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
   };
 
   const openAddModal = () => {
@@ -122,28 +140,21 @@ const UserManagementPage: React.FC = () => {
     setPhone(user.phone);
     setRoleId(user.role_id);
     setStatus(user.status || "active");
+    setPassword("");
     setNewPassword("");
     setConfirmPassword("");
+    setShowAddPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setDialogOpen(true);
   };
 
   const fetchUsers = async () => {
-    if (!authUser?.id) {
-      setUsers([]);
-      setLoading(false);
-      toast.error("Missing authenticated user.");
-      return;
-    }
-
     try {
       setLoading(true);
 
-      const data: any = await apipost.post("/users", {
-        uid: authUser.id,
-        search: "",
-        role: "",
-        status: "",
-      });
+      const res = await fetch(API_USERS_GET);
+      const data = await res.json();
 
       if (data?.status === "success" || Array.isArray(data?.users)) {
         const rows = Array.isArray(data?.users)
@@ -181,7 +192,7 @@ const UserManagementPage: React.FC = () => {
     } catch (err) {
       console.error("Error fetching users:", err);
       setUsers([]);
-      toast.error(typeof err === "string" ? err : "Failed to load users.");
+      toast.error("Failed to load users.");
     } finally {
       setLoading(false);
     }
@@ -246,6 +257,12 @@ const UserManagementPage: React.FC = () => {
       toast.error("Email is required.");
       return;
     }
+
+    if (!editingId && !password.trim()) {
+      toast.error("Password is required.");
+      return;
+    }
+
     if (editingId && (newPassword.trim() || confirmPassword.trim())) {
       if (newPassword.trim().length < 8) {
         toast.error("New password must be at least 8 characters.");
@@ -258,7 +275,6 @@ const UserManagementPage: React.FC = () => {
     }
 
     const payload = {
-      uid: authUser?.id,
       ...(editingId ? { id: Number(editingId) } : {}),
       username: username.trim(),
       firstname: firstname.trim(),
@@ -266,7 +282,8 @@ const UserManagementPage: React.FC = () => {
       email: email.trim(),
       phone: phone.trim(),
       role_id: Number(roleId),
-      status: status.trim(),
+      status: status.trim().toLowerCase(),
+      ...(!editingId ? { password: password.trim() } : {}),
       ...(editingId && newPassword.trim()
         ? { password: newPassword.trim() }
         : {}),
@@ -274,7 +291,18 @@ const UserManagementPage: React.FC = () => {
 
     try {
       setSaving(true);
-      const data: any = await apipost.post("/users/save", payload);
+
+      const url = editingId ? API_USERS_UPDATE : API_USERS_ADD;
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
 
       if (data?.status === "success") {
         toast.success(editingId ? "User updated successfully." : "User created successfully.");
@@ -286,7 +314,7 @@ const UserManagementPage: React.FC = () => {
       }
     } catch (err) {
       console.error("Save user error:", err);
-      toast.error(typeof err === "string" ? err : "Failed to save user.");
+      toast.error("Failed to save user.");
     } finally {
       setSaving(false);
     }
@@ -417,9 +445,9 @@ const UserManagementPage: React.FC = () => {
                                 </div>
 
                                 <div>
-                                <div className="fw-medium">{u.name}</div>
-                                <small className="text-muted d-block">{u.email}</small>
-                                <small className="text-muted">@{u.username}</small>
+                                  <div className="fw-medium">{u.name}</div>
+                                  <small className="text-muted d-block">{u.email}</small>
+                                  <small className="text-muted">@{u.username}</small>
                                 </div>
                               </div>
                             </td>
@@ -438,7 +466,7 @@ const UserManagementPage: React.FC = () => {
 
                             <td>
                               <Badge color={u.status === "active" ? "success" : "secondary"}>
-                                {(u.status || "").charAt(0).toUpperCase() + (u.status || "").slice(1)}
+                                {capitalize(u.status || "")}
                               </Badge>
                             </td>
 
@@ -545,15 +573,50 @@ const UserManagementPage: React.FC = () => {
                 />
               </Col>
 
-              <Col md={6}>
-                <Label className="form-label">Email *</Label>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={saving}
-                />
-              </Col>
+              {!editingId ? (
+                <Col md={6}>
+                  <Label className="form-label">Password *</Label>
+                  <InputGroup>
+                    <Input
+                      type={showAddPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={saving}
+                    />
+                    <Button
+                      color="light"
+                      className="border"
+                      type="button"
+                      onClick={() => setShowAddPassword((v) => !v)}
+                      disabled={saving}
+                    >
+                      {showAddPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </Button>
+                  </InputGroup>
+                </Col>
+              ) : (
+                <Col md={6}>
+                  <Label className="form-label">Email *</Label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={saving}
+                  />
+                </Col>
+              )}
+
+              {!editingId && (
+                <Col md={12}>
+                  <Label className="form-label">Email *</Label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={saving}
+                  />
+                </Col>
+              )}
 
               <Col md={6}>
                 <Label className="form-label">First Name *</Label>
@@ -622,26 +685,48 @@ const UserManagementPage: React.FC = () => {
 
                   <Col md={6}>
                     <Label className="form-label">New Password</Label>
-                    <Input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      disabled={saving}
-                      placeholder="Minimum 8 characters"
-                    />
+                    <InputGroup>
+                      <Input
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        disabled={saving}
+                        placeholder="Minimum 8 characters"
+                      />
+                      <Button
+                        color="light"
+                        className="border"
+                        type="button"
+                        onClick={() => setShowNewPassword((v) => !v)}
+                        disabled={saving}
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </Button>
+                    </InputGroup>
                   </Col>
 
                   <Col md={6}>
                     <Label className="form-label">Confirm Password</Label>
-                    <Input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      disabled={saving}
-                      invalid={
-                        Boolean(confirmPassword) && confirmPassword !== newPassword
-                      }
-                    />
+                    <InputGroup>
+                      <Input
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        disabled={saving}
+                        invalid={
+                          Boolean(confirmPassword) && confirmPassword !== newPassword
+                        }
+                      />
+                      <Button
+                        color="light"
+                        className="border"
+                        type="button"
+                        onClick={() => setShowConfirmPassword((v) => !v)}
+                        disabled={saving}
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </Button>
+                    </InputGroup>
                   </Col>
                 </>
               )}
@@ -681,5 +766,9 @@ const UserManagementPage: React.FC = () => {
   );
 };
 
+<<<<<<< HEAD
 export default UserManagementPage;
 
+=======
+export default UserManagementPage;
+>>>>>>> f3c493f6efbafd6738634b186c7054ae298b7e34
