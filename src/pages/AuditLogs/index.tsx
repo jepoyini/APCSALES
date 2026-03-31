@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  RefreshCcw,
   Search,
 } from "lucide-react";
 import {
@@ -25,11 +26,13 @@ import BreadCrumb from "../../Components/Common/BreadCrumb";
 
 type AuditLog = {
   id: string;
+  user_id?: number | null;
   user_name: string;
   action: string;
   resource: string;
   details: string;
   ip_address: string;
+  ip_location?: string;
   created_at: string;
 };
 
@@ -46,11 +49,11 @@ type SortDirection = "asc" | "desc";
 const ACTION_COLORS: Record<string, string> = {
   login: "success",
   login_failed: "danger",
-  "manual_sale.create": "info",
-  "manual_sale.update": "warning",
-  "user.update": "primary",
-  "integration.sync": "secondary",
-  "role.update": "primary",
+  logout: "secondary",
+  create: "info",
+  update: "warning",
+  delete: "danger",
+  sync: "primary",
 };
 
 const API_URL = "https://apidb.americanplaquecompany.com/analytics/auditlogs";
@@ -60,6 +63,8 @@ const AuditLogsPage: React.FC = () => {
 
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
   const [resourceFilter, setResourceFilter] = useState("all");
@@ -68,55 +73,76 @@ const AuditLogsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const perPage = 10;
 
-  useEffect(() => {
-    const fetchAuditLogs = async () => {
-      try {
+  const fetchAuditLogs = useCallback(async (isRefresh = false) => {
+    try {
+      setError("");
+
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
         setLoading(true);
-        const response = await fetch(API_URL);
-        const data = await response.json();
-
-        const rows = Array.isArray(data?.auditlogs)
-          ? data.auditlogs
-          : Array.isArray(data?.logs)
-          ? data.logs
-          : Array.isArray(data?.data)
-          ? data.data
-          : Array.isArray(data)
-          ? data
-          : [];
-
-        const mapped: AuditLog[] = rows.map((log: any, index: number) => ({
-          id: String(log.id ?? log.audit_log_id ?? index),
-          user_name: String(log.user_name ?? log.name ?? log.user ?? "Unknown User"),
-          action: String(log.action ?? log.event ?? "unknown"),
-          resource: String(log.resource ?? log.module ?? "general"),
-          details: String(log.details ?? log.description ?? log.message ?? ""),
-          ip_address: String(log.ip_address ?? log.ip ?? "-"),
-          created_at: String(log.created_at ?? log.timestamp ?? log.date_created ?? ""),
-        }));
-
-        setLogs(mapped);
-      } catch (error) {
-        console.error("Error fetching audit logs:", error);
-        setLogs([]);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    fetchAuditLogs();
+      const response = await fetch(API_URL, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      const rows = Array.isArray(data?.logs)
+        ? data.logs
+        : Array.isArray(data?.auditlogs)
+        ? data.auditlogs
+        : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data)
+        ? data
+        : [];
+
+      const mapped: AuditLog[] = rows.map((log: any, index: number) => ({
+        id: String(log.id ?? index),
+        user_id: log.user_id ?? null,
+        user_name: String(log.user_name ?? "System"),
+        action: String(log.action ?? log.type ?? "unknown"),
+        resource: String(log.resource ?? "general"),
+        details: String(log.details ?? log.data ?? ""),
+        ip_address: String(log.ip_address ?? "-"),
+        ip_location: String(log.ip_location ?? ""),
+        created_at: String(log.created_at ?? log.date_created ?? ""),
+      }));
+
+      setLogs(mapped);
+    } catch (err: any) {
+      console.error("Error fetching audit logs:", err);
+      setLogs([]);
+      setError(err?.message || "Failed to load audit logs.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
+  useEffect(() => {
+    fetchAuditLogs();
+  }, [fetchAuditLogs]);
+
   const actionOptions = useMemo(() => {
-    return Array.from(
-      new Set(logs.map((log) => log.action).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b));
+    return Array.from(new Set(logs.map((log) => log.action).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    );
   }, [logs]);
 
   const resourceOptions = useMemo(() => {
-    return Array.from(
-      new Set(logs.map((log) => log.resource).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b));
+    return Array.from(new Set(logs.map((log) => log.resource).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    );
   }, [logs]);
 
   const filtered = useMemo(() => {
@@ -129,7 +155,8 @@ const AuditLogsPage: React.FC = () => {
         !log.action.toLowerCase().includes(keyword) &&
         !log.resource.toLowerCase().includes(keyword) &&
         !log.details.toLowerCase().includes(keyword) &&
-        !log.ip_address.toLowerCase().includes(keyword)
+        !log.ip_address.toLowerCase().includes(keyword) &&
+        !(log.ip_location || "").toLowerCase().includes(keyword)
       ) {
         return false;
       }
@@ -170,14 +197,8 @@ const AuditLogsPage: React.FC = () => {
       const aValue = getValue(a);
       const bValue = getValue(b);
 
-      if (aValue < bValue) {
-        return sortDirection === "asc" ? -1 : 1;
-      }
-
-      if (aValue > bValue) {
-        return sortDirection === "asc" ? 1 : -1;
-      }
-
+      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
       return 0;
     });
   }, [filtered, sortDirection, sortKey]);
@@ -187,6 +208,13 @@ const AuditLogsPage: React.FC = () => {
   }, [search, actionFilter, resourceFilter, sortKey, sortDirection]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / perPage));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
   const paged = sorted.slice((page - 1) * perPage, page * perPage);
 
   const handleSort = (key: SortKey) => {
@@ -207,22 +235,56 @@ const AuditLogsPage: React.FC = () => {
     return sortDirection === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
   };
 
+  const getActionColor = (action: string) => {
+    if (ACTION_COLORS[action]) return ACTION_COLORS[action];
+
+    if (action.includes("login")) return "success";
+    if (action.includes("delete")) return "danger";
+    if (action.includes("update")) return "warning";
+    if (action.includes("create")) return "info";
+
+    return "light";
+  };
+
   return (
     <div className="page-content">
       <Container fluid>
         <BreadCrumb title="Audit Logs" pageTitle="Dashboard" />
 
         <Row className="mb-4">
-          <Col>
+          <Col md={8}>
             <h2 className="mb-1">Audit Logs</h2>
             {loading ? (
               <p className="text-muted mb-0 d-inline-flex align-items-center gap-2">
                 <Spinner size="sm" color="primary" />
                 <span>Loading audit logs...</span>
               </p>
+            ) : error ? (
+              <p className="text-danger mb-0">{error}</p>
             ) : (
               <p className="text-muted mb-0">{filtered.length} log entries found</p>
             )}
+          </Col>
+
+          <Col md={4} className="text-md-end mt-3 mt-md-0">
+            <Button
+              color="light"
+              className="border"
+              onClick={() => fetchAuditLogs(true)}
+              disabled={loading || refreshing}
+            >
+              {refreshing ? (
+                <>
+                  <Spinner size="sm" className="me-2" />
+                  Refreshing...
+                </>
+              ) : (
+                <>
+                  <RefreshCcw size={16} className="me-2" />
+                  Refresh
+                </>
+              )}
+            </Button>
           </Col>
         </Row>
 
@@ -251,6 +313,7 @@ const AuditLogsPage: React.FC = () => {
                       type="select"
                       value={actionFilter}
                       onChange={(e) => setActionFilter(e.target.value)}
+                      disabled={loading}
                     >
                       <option value="all">All Actions</option>
                       {actionOptions.map((action) => (
@@ -267,6 +330,7 @@ const AuditLogsPage: React.FC = () => {
                       type="select"
                       value={resourceFilter}
                       onChange={(e) => setResourceFilter(e.target.value)}
+                      disabled={loading}
                     >
                       <option value="all">All Resources</option>
                       {resourceOptions.map((resource) => (
@@ -346,7 +410,19 @@ const AuditLogsPage: React.FC = () => {
                     </thead>
 
                     <tbody>
+                      {loading && (
+                        <tr>
+                          <td colSpan={6} className="text-center py-5">
+                            <div className="d-inline-flex align-items-center gap-2 text-muted">
+                              <Spinner color="primary" />
+                              <span>Loading audit logs...</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+
                       {!loading &&
+                        !error &&
                         paged.map((log) => (
                           <tr key={log.id}>
                             <td>
@@ -356,32 +432,44 @@ const AuditLogsPage: React.FC = () => {
                                   : "-"}
                               </code>
                             </td>
-                            <td className="fw-medium">{log.user_name}</td>
                             <td>
-                              <Badge color={ACTION_COLORS[log.action] || "light"}>
+                              <div className="fw-medium">{log.user_name}</div>
+                              {log.user_id ? (
+                                <small className="text-muted">ID: {log.user_id}</small>
+                              ) : null}
+                            </td>
+                            <td>
+                              <Badge color={getActionColor(log.action)}>
                                 {log.action}
                               </Badge>
                             </td>
                             <td className="text-capitalize">{log.resource}</td>
-                            <td className="text-muted">{log.details || "-"}</td>
+                            <td className="text-muted" style={{ minWidth: "280px" }}>
+                              {log.details || "-"}
+                              {log.ip_location ? (
+                                <div className="small text-muted mt-1">
+                                  Location: {log.ip_location}
+                                </div>
+                              ) : null}
+                            </td>
                             <td>
                               <code>{log.ip_address}</code>
                             </td>
                           </tr>
                         ))}
 
-                      {loading && (
+                      {!loading && error && (
                         <tr>
-                          <td colSpan={6} className="text-center py-4">
-                            <div className="d-inline-flex align-items-center gap-2 text-muted">
-                              <Spinner size="sm" color="primary" />
-                              <span>Loading audit logs...</span>
-                            </div>
+                          <td colSpan={6} className="text-center py-5">
+                            <div className="text-danger mb-3">{error}</div>
+                            <Button color="primary" onClick={() => fetchAuditLogs()}>
+                              Try Again
+                            </Button>
                           </td>
                         </tr>
                       )}
 
-                      {!loading && paged.length === 0 && (
+                      {!loading && !error && paged.length === 0 && (
                         <tr>
                           <td colSpan={6} className="text-center text-muted py-4">
                             No audit logs found for the selected filters.

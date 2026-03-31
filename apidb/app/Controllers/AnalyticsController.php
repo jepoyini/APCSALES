@@ -90,22 +90,58 @@ class AnalyticsController extends ResourceController
     {
         global $conn;
 
-        $stmt = $conn->prepare("
-            SELECT 
-                id,
-                user_name,
-                action,
-                resource,
-                details,
-                ip_address,
-                created_at
-            FROM analytics_audit_logs
-            ORDER BY created_at DESC
-        ");
+        if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            return $this->response->setStatusCode(200);
+        }
 
+        $sql = "
+            SELECT 
+                al.id,
+                al.user_id,
+                al.type,
+                al.data,
+                al.ip_address,
+                al.date_created,
+                al.ip_location,
+                COALESCE(
+                    NULLIF(TRIM(CONCAT(u.firstname, ' ', u.lastname)), ''),
+                    NULLIF(u.username, ''),
+                    CONCAT('User #', al.user_id),
+                    'System'
+                ) AS user_name
+            FROM activity_log al
+            LEFT JOIN users u ON u.id = al.user_id
+            ORDER BY al.date_created DESC
+        ";
+
+        $stmt = $conn->prepare($sql);
         $stmt->execute();
         $result = $stmt->get_result();
-        $logs = $result->fetch_all(MYSQLI_ASSOC);
+
+        $logs = [];
+
+        while ($row = $result->fetch_assoc()) {
+            $type = (string)($row['type'] ?? 'unknown');
+
+            $resource = 'general';
+            if (strpos($type, '.') !== false) {
+                $parts = explode('.', $type);
+                $resource = !empty($parts[0]) ? $parts[0] : 'general';
+            }
+
+            $logs[] = [
+                'id' => (int)$row['id'],
+                'user_id' => $row['user_id'] !== null ? (int)$row['user_id'] : null,
+                'user_name' => $row['user_name'] ?? 'System',
+                'action' => $type,
+                'resource' => $resource,
+                'details' => $row['data'] ?? '',
+                'ip_address' => $row['ip_address'] ?? '-',
+                'ip_location' => $row['ip_location'] ?? '',
+                'created_at' => $row['date_created'] ?? null,
+            ];
+        }
+
         $stmt->close();
 
         return $this->response->setJSON([
