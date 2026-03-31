@@ -54,7 +54,7 @@ type ProductRow = {
   site: string;
   revenue: number;
   units_sold: number;
-  aov_contribution: number;
+  auv: number;
 };
 
 type OrderRow = {
@@ -89,9 +89,9 @@ const chartColors = [
 ];
 
 const SITE_COLORS: Record<string, string> = {
-  APC: "primary",     // blue
-  MP: "success",      // green
-  PNP: "warning",     // yellow
+  APC: "primary",
+  MP: "success",
+  PNP: "warning",
 };
 
 const DATE_PRESETS = [
@@ -150,17 +150,25 @@ const DashboardEcommerce = () => {
       ? raw.data
       : [];
 
-    return rows.map((p: any, idx: number) => ({
-      id: p.id ?? p.product_id ?? idx,
-      product_name: p.product_name ?? p.name ?? p.title ?? "Unnamed Product",
-      sku: p.sku ?? p.product_sku ?? "",
-      site: normalizeSite(p.site ?? p.website ?? p.source),
-      revenue: toNumber(p.revenue ?? p.total_revenue ?? p.sales ?? 0),
-      units_sold: toNumber(p.units_sold ?? p.qty_sold ?? p.units ?? 0),
-      aov_contribution: toNumber(
-        p.aov_contribution ?? p.aov ?? p.avg_order_value ?? p.auv ?? 0
-      ),
-    }));
+    return rows.map((p: any, idx: number) => {
+      const revenue = toNumber(p.revenue ?? p.total_revenue ?? p.sales ?? 0);
+      const unitsSold = toNumber(p.units_sold ?? p.qty_sold ?? p.units ?? 0);
+
+      // Product-level metric should be AUV, not AOV.
+      // Prefer backend-provided AUV if present; otherwise compute from revenue / units_sold.
+      const backendAuv = toNumber(p.auv ?? p.avg_unit_value ?? p.average_unit_value ?? 0);
+      const computedAuv = unitsSold > 0 ? revenue / unitsSold : 0;
+
+      return {
+        id: p.id ?? p.product_id ?? idx,
+        product_name: p.product_name ?? p.name ?? p.title ?? "Unnamed Product",
+        sku: p.sku ?? p.product_sku ?? "",
+        site: normalizeSite(p.site ?? p.website ?? p.source),
+        revenue,
+        units_sold: unitsSold,
+        auv: backendAuv > 0 ? backendAuv : computedAuv,
+      };
+    });
   };
 
   const normalizeOrders = (raw: any): OrderRow[] => {
@@ -461,19 +469,19 @@ const DashboardEcommerce = () => {
                       </div>
                     </div>
 
-	                    <h3 className="mb-1">
-	                      {loading ? (
-	                        <Spinner size="sm" color="primary" />
-	                      ) : (
-	                        <>
-	                          {kpi.prefix}
-	                          {Number(kpi.value || 0).toLocaleString(undefined, {
-	                            minimumFractionDigits: kpi.prefix ? 2 : 0,
-	                            maximumFractionDigits: kpi.prefix ? 2 : 0,
-	                          })}
-	                        </>
-	                      )}
-	                    </h3>
+                    <h3 className="mb-1">
+                      {loading ? (
+                        <Spinner size="sm" color="primary" />
+                      ) : (
+                        <>
+                          {kpi.prefix}
+                          {Number(kpi.value || 0).toLocaleString(undefined, {
+                            minimumFractionDigits: kpi.prefix ? 2 : 0,
+                            maximumFractionDigits: kpi.prefix ? 2 : 0,
+                          })}
+                        </>
+                      )}
+                    </h3>
 
                     <p className="text-muted mb-0">{kpi.label}</p>
                   </CardBody>
@@ -490,35 +498,35 @@ const DashboardEcommerce = () => {
                 <h6 className="mb-1">Revenue Trend</h6>
               </CardHeader>
 
-	              <CardBody style={{ height: 330 }}>
-	                {loading ? (
-	                  <div className="h-100 d-flex align-items-center justify-content-center">
-	                    <div className="d-inline-flex align-items-center gap-2 text-muted">
-	                      <Spinner size="sm" color="primary" />
-	                      <span>Loading dashboard...</span>
-	                    </div>
-	                  </div>
-	                ) : (
-	                  <ResponsiveContainer width="100%" height="100%">
-	                    <AreaChart data={revenueTrend}>
-	                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-	                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-	                      <YAxis
-	                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-	                        tick={{ fontSize: 11 }}
-	                      />
-	                      <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-	                      <Area
-	                        type="monotone"
-	                        dataKey="revenue"
-	                        stroke="hsl(222,62%,22%)"
-	                        fill="hsl(222,62%,22%,0.2)"
-	                        strokeWidth={2}
-	                      />
-	                    </AreaChart>
-	                  </ResponsiveContainer>
-	                )}
-	              </CardBody>
+              <CardBody style={{ height: 330 }}>
+                {loading ? (
+                  <div className="h-100 d-flex align-items-center justify-content-center">
+                    <div className="d-inline-flex align-items-center gap-2 text-muted">
+                      <Spinner size="sm" color="primary" />
+                      <span>Loading dashboard...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={revenueTrend}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                      <YAxis
+                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
+                      <Area
+                        type="monotone"
+                        dataKey="revenue"
+                        stroke="hsl(222,62%,22%)"
+                        fill="hsl(222,62%,22%,0.2)"
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </CardBody>
             </Card>
           </Col>
 
@@ -528,36 +536,36 @@ const DashboardEcommerce = () => {
                 <h6 className="mb-0">Channel Mix</h6>
               </CardHeader>
 
-	              <CardBody>
-	                <div style={{ height: 200 }}>
-	                  {loading ? (
-	                    <div className="h-100 d-flex align-items-center justify-content-center">
-	                      <div className="d-inline-flex align-items-center gap-2 text-muted">
-	                        <Spinner size="sm" color="primary" />
-	                        <span>Loading dashboard...</span>
-	                      </div>
-	                    </div>
-	                  ) : (
-	                    <ResponsiveContainer width="100%" height="100%">
-	                      <PieChart>
-	                        <Pie
-	                          data={channelMix}
-	                          dataKey="value"
-	                          nameKey="channel"
-	                          innerRadius={50}
-	                          outerRadius={75}
-	                        >
-	                          {channelMix.map((_, i) => (
-	                            <Cell key={i} fill={chartColors[i % chartColors.length]} />
-	                          ))}
-	                        </Pie>
-	                        <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-	                        <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-	                      </PieChart>
-	                    </ResponsiveContainer>
-	                  )}
-	                </div>
-	              </CardBody>
+              <CardBody>
+                <div style={{ height: 200 }}>
+                  {loading ? (
+                    <div className="h-100 d-flex align-items-center justify-content-center">
+                      <div className="d-inline-flex align-items-center gap-2 text-muted">
+                        <Spinner size="sm" color="primary" />
+                        <span>Loading dashboard...</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={channelMix}
+                          dataKey="value"
+                          nameKey="channel"
+                          innerRadius={50}
+                          outerRadius={75}
+                        >
+                          {channelMix.map((_, i) => (
+                            <Cell key={i} fill={chartColors[i % chartColors.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
+                        <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardBody>
             </Card>
           </Col>
         </Row>
@@ -569,33 +577,33 @@ const DashboardEcommerce = () => {
                 <h6 className="mb-0">Revenue by Website</h6>
               </CardHeader>
 
-	              <CardBody style={{ height: 300 }}>
-	                {loading ? (
-	                  <div className="h-100 d-flex align-items-center justify-content-center">
-	                    <div className="d-inline-flex align-items-center gap-2 text-muted">
-	                      <Spinner size="sm" color="primary" />
-	                      <span>Loading dashboard...</span>
-	                    </div>
-	                  </div>
-	                ) : (
-	                  <ResponsiveContainer width="100%" height="100%">
-	                    <BarChart data={revenueBySite} layout="vertical">
-	                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-	                      <XAxis
-	                        type="number"
-	                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-	                      />
-	                      <YAxis type="category" dataKey="site" width={140} />
-	                      <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-	                      <Bar dataKey="revenue" radius={[0, 4, 4, 0]}>
-	                        {revenueBySite.map((_, i) => (
-	                          <Cell key={i} fill={chartColors[i % chartColors.length]} />
-	                        ))}
-	                      </Bar>
-	                    </BarChart>
-	                  </ResponsiveContainer>
-	                )}
-	              </CardBody>
+              <CardBody style={{ height: 300 }}>
+                {loading ? (
+                  <div className="h-100 d-flex align-items-center justify-content-center">
+                    <div className="d-inline-flex align-items-center gap-2 text-muted">
+                      <Spinner size="sm" color="primary" />
+                      <span>Loading dashboard...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={revenueBySite} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis
+                        type="number"
+                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      />
+                      <YAxis type="category" dataKey="site" width={140} />
+                      <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
+                      <Bar dataKey="revenue" radius={[0, 4, 4, 0]}>
+                        {revenueBySite.map((_, i) => (
+                          <Cell key={i} fill={chartColors[i % chartColors.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardBody>
             </Card>
           </Col>
 
@@ -605,28 +613,28 @@ const DashboardEcommerce = () => {
                 <h6 className="mb-0">Order Status Breakdown</h6>
               </CardHeader>
 
-	              <CardBody style={{ height: 300 }}>
-	                {loading ? (
-	                  <div className="h-100 d-flex align-items-center justify-content-center">
-	                    <div className="d-inline-flex align-items-center gap-2 text-muted">
-	                      <Spinner size="sm" color="primary" />
-	                      <span>Loading dashboard...</span>
-	                    </div>
-	                  </div>
-	                ) : (
-	                  <ResponsiveContainer width="100%" height="100%">
-	                    <PieChart>
-	                      <Pie data={orderStatus} dataKey="total" nameKey="status">
-	                        {orderStatus.map((_, i) => (
-	                          <Cell key={i} fill={chartColors[i % chartColors.length]} />
-	                        ))}
-	                      </Pie>
-	                      <Tooltip />
-	                      <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-	                    </PieChart>
-	                  </ResponsiveContainer>
-	                )}
-	              </CardBody>
+              <CardBody style={{ height: 300 }}>
+                {loading ? (
+                  <div className="h-100 d-flex align-items-center justify-content-center">
+                    <div className="d-inline-flex align-items-center gap-2 text-muted">
+                      <Spinner size="sm" color="primary" />
+                      <span>Loading dashboard...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={orderStatus} dataKey="total" nameKey="status">
+                        {orderStatus.map((_, i) => (
+                          <Cell key={i} fill={chartColors[i % chartColors.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardBody>
             </Card>
           </Col>
         </Row>
@@ -636,12 +644,12 @@ const DashboardEcommerce = () => {
             <Card className="border-0 shadow-sm">
               <CardHeader className="border-0 d-flex justify-content-between align-items-center">
                 <h6 className="mb-0">Top Products by Revenue</h6>
-	                {loading && (
-	                  <div className="d-inline-flex align-items-center gap-2 text-muted small">
-	                    <Spinner size="sm" color="primary" />
-	                    <span>Loading dashboard...</span>
-	                  </div>
-	                )}
+                {loading && (
+                  <div className="d-inline-flex align-items-center gap-2 text-muted small">
+                    <Spinner size="sm" color="primary" />
+                    <span>Loading dashboard...</span>
+                  </div>
+                )}
               </CardHeader>
 
               <CardBody>
@@ -654,39 +662,51 @@ const DashboardEcommerce = () => {
                         <th>Site</th>
                         <th className="text-end">Revenue</th>
                         <th className="text-end">Units</th>
-                        <th className="text-end">AOV</th>
+                        <th className="text-end">AUV</th>
                       </tr>
                     </thead>
 
-	                    <tbody>
-	                      {!loading &&
-	                        paginatedTopProducts.map((p) => (
-	                          <tr key={p.id}>
-	                            <td className="fw-medium">{p.product_name}</td>
-	                            <td>
-	                              <code>{p.sku}</code>
-	                            </td>
-	                            <td>
-	                              <Badge color={SITE_COLORS[p.site] || "secondary"}>
-                                  {p.site}
-                                </Badge>
-	                            </td>
-	                            <td className="text-end">${p.revenue.toLocaleString()}</td>
-	                            <td className="text-end">{p.units_sold}</td>
-	                            <td className="text-end">${p.aov_contribution.toLocaleString()}</td>
-	                          </tr>
-	                        ))}
+                    <tbody>
+                      {!loading &&
+                        paginatedTopProducts.map((p) => (
+                          <tr key={p.id}>
+                            <td className="fw-medium">{p.product_name}</td>
+                            <td>
+                              <code>{p.sku}</code>
+                            </td>
+                            <td>
+                              <Badge color={SITE_COLORS[p.site] || "secondary"}>
+                                {p.site}
+                              </Badge>
+                            </td>
+                            <td className="text-end">
+                              ${p.revenue.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="text-end">
+                              {p.units_sold.toLocaleString()}
+                            </td>
+                            <td className="text-end">
+                              ${p.auv.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </td>
+                          </tr>
+                        ))}
 
-	                      {loading && (
-	                        <tr>
-	                          <td colSpan={6} className="text-center py-4">
-	                            <div className="d-inline-flex align-items-center gap-2 text-muted">
-	                              <Spinner size="sm" color="primary" />
-	                              <span>Loading dashboard...</span>
-	                            </div>
-	                          </td>
-	                        </tr>
-	                      )}
+                      {loading && (
+                        <tr>
+                          <td colSpan={6} className="text-center py-4">
+                            <div className="d-inline-flex align-items-center gap-2 text-muted">
+                              <Spinner size="sm" color="primary" />
+                              <span>Loading dashboard...</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
 
                       {!loading && paginatedTopProducts.length === 0 && (
                         <tr>

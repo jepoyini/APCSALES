@@ -103,6 +103,14 @@ class AuthController extends ResourceController
         if ($result->num_rows > 0) {
 
             $user = $result->fetch_assoc();
+
+            if ($user['status'] !== 'active') {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Your account is inactive. Please contact admin.'
+                ]);
+            }
+
             $ans  = password_verify($this->request->getVar('password'), $user['password']); 
          
             $pass = $this->request->getVar('password'); 

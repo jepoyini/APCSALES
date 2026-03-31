@@ -22,7 +22,9 @@ export const loginUser = (user : any, history : any) => async (dispatch : any) =
     }
 
     const errorMessage =
-      typeof response?.data === "string" ? response.data : "Invalid email or password";
+      response?.message ||
+      (typeof response?.data === "string" ? response.data : null) ||
+      "Invalid email or password";
     dispatch(apiError({ data: errorMessage }));
   } catch (error) {
     const message = typeof error === "string" ? error : "Login failed";

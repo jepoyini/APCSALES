@@ -29,7 +29,6 @@ type AuditLog = {
   user_id?: number | null;
   user_name: string;
   action: string;
-  resource: string;
   details: string;
   ip_address: string;
   ip_location?: string;
@@ -40,21 +39,10 @@ type SortKey =
   | "created_at"
   | "user_name"
   | "action"
-  | "resource"
   | "details"
   | "ip_address";
 
 type SortDirection = "asc" | "desc";
-
-const ACTION_COLORS: Record<string, string> = {
-  login: "success",
-  login_failed: "danger",
-  logout: "secondary",
-  create: "info",
-  update: "warning",
-  delete: "danger",
-  sync: "primary",
-};
 
 const API_URL = "https://apidb.americanplaquecompany.com/analytics/auditlogs";
 
@@ -67,7 +55,7 @@ const AuditLogsPage: React.FC = () => {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
-  const [resourceFilter, setResourceFilter] = useState("all");
+  const [userFilter, setUserFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
@@ -111,7 +99,6 @@ const AuditLogsPage: React.FC = () => {
         user_id: log.user_id ?? null,
         user_name: String(log.user_name ?? "System"),
         action: String(log.action ?? log.type ?? "unknown"),
-        resource: String(log.resource ?? "general"),
         details: String(log.details ?? log.data ?? ""),
         ip_address: String(log.ip_address ?? "-"),
         ip_location: String(log.ip_location ?? ""),
@@ -139,8 +126,8 @@ const AuditLogsPage: React.FC = () => {
     );
   }, [logs]);
 
-  const resourceOptions = useMemo(() => {
-    return Array.from(new Set(logs.map((log) => log.resource).filter(Boolean))).sort((a, b) =>
+  const userOptions = useMemo(() => {
+    return Array.from(new Set(logs.map((log) => log.user_name).filter(Boolean))).sort((a, b) =>
       a.localeCompare(b)
     );
   }, [logs]);
@@ -153,7 +140,6 @@ const AuditLogsPage: React.FC = () => {
         keyword &&
         !log.user_name.toLowerCase().includes(keyword) &&
         !log.action.toLowerCase().includes(keyword) &&
-        !log.resource.toLowerCase().includes(keyword) &&
         !log.details.toLowerCase().includes(keyword) &&
         !log.ip_address.toLowerCase().includes(keyword) &&
         !(log.ip_location || "").toLowerCase().includes(keyword)
@@ -165,13 +151,13 @@ const AuditLogsPage: React.FC = () => {
         return false;
       }
 
-      if (resourceFilter !== "all" && log.resource !== resourceFilter) {
+      if (userFilter !== "all" && log.user_name !== userFilter) {
         return false;
       }
 
       return true;
     });
-  }, [actionFilter, logs, resourceFilter, search]);
+  }, [search, actionFilter, userFilter, logs]);
 
   const sorted = useMemo(() => {
     const getValue = (log: AuditLog) => {
@@ -182,8 +168,6 @@ const AuditLogsPage: React.FC = () => {
           return log.user_name.toLowerCase();
         case "action":
           return log.action.toLowerCase();
-        case "resource":
-          return log.resource.toLowerCase();
         case "details":
           return log.details.toLowerCase();
         case "ip_address":
@@ -205,7 +189,7 @@ const AuditLogsPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, actionFilter, resourceFilter, sortKey, sortDirection]);
+  }, [search, actionFilter, userFilter, sortKey, sortDirection]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / perPage));
 
@@ -236,14 +220,18 @@ const AuditLogsPage: React.FC = () => {
   };
 
   const getActionColor = (action: string) => {
-    if (ACTION_COLORS[action]) return ACTION_COLORS[action];
+    const normalized = action.toLowerCase();
 
-    if (action.includes("login")) return "success";
-    if (action.includes("delete")) return "danger";
-    if (action.includes("update")) return "warning";
-    if (action.includes("create")) return "info";
+    if (normalized.includes("login_failed") || normalized.includes("failed")) return "danger";
+    if (normalized.includes("delete") || normalized.includes("remove")) return "danger";
+    if (normalized.includes("login")) return "success";
+    if (normalized.includes("logout")) return "dark";
+    if (normalized.includes("create") || normalized.includes("add")) return "info";
+    if (normalized.includes("update") || normalized.includes("edit")) return "warning";
+    if (normalized.includes("sync") || normalized.includes("import")) return "primary";
+    if (normalized.includes("role")) return "secondary";
 
-    return "light";
+    return "secondary";
   };
 
   return (
@@ -293,21 +281,23 @@ const AuditLogsPage: React.FC = () => {
             <Card className="border-0 shadow-sm">
               <CardBody>
                 <Row className="g-3 mb-4">
-                  <Col md={6}>
+                  <Col md={4}>
                     <Label className="form-label">Search</Label>
                     <InputGroup>
                       <InputGroupText>
                         <Search size={16} />
                       </InputGroupText>
                       <Input
+                        type="text"
                         placeholder="Search audit logs..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
+                        disabled={loading}
                       />
                     </InputGroup>
                   </Col>
 
-                  <Col md={3}>
+                  <Col md={4}>
                     <Label className="form-label">Action</Label>
                     <Input
                       type="select"
@@ -318,24 +308,24 @@ const AuditLogsPage: React.FC = () => {
                       <option value="all">All Actions</option>
                       {actionOptions.map((action) => (
                         <option key={action} value={action}>
-                          {action}
+                          {action.charAt(0).toUpperCase() + action.slice(1)}
                         </option>
                       ))}
                     </Input>
                   </Col>
 
-                  <Col md={3}>
-                    <Label className="form-label">Resource</Label>
+                  <Col md={4}>
+                    <Label className="form-label">User</Label>
                     <Input
                       type="select"
-                      value={resourceFilter}
-                      onChange={(e) => setResourceFilter(e.target.value)}
+                      value={userFilter}
+                      onChange={(e) => setUserFilter(e.target.value)}
                       disabled={loading}
                     >
-                      <option value="all">All Resources</option>
-                      {resourceOptions.map((resource) => (
-                        <option key={resource} value={resource}>
-                          {resource}
+                      <option value="all">All Users</option>
+                      {userOptions.map((user) => (
+                        <option key={user} value={user}>
+                          {user}
                         </option>
                       ))}
                     </Input>
@@ -380,16 +370,6 @@ const AuditLogsPage: React.FC = () => {
                           <button
                             type="button"
                             className="btn btn-link p-0 text-decoration-none text-reset fw-semibold d-inline-flex align-items-center gap-1"
-                            onClick={() => handleSort("resource")}
-                          >
-                            Resource
-                            {renderSortIcon("resource")}
-                          </button>
-                        </th>
-                        <th>
-                          <button
-                            type="button"
-                            className="btn btn-link p-0 text-decoration-none text-reset fw-semibold d-inline-flex align-items-center gap-1"
                             onClick={() => handleSort("details")}
                           >
                             Details
@@ -412,7 +392,7 @@ const AuditLogsPage: React.FC = () => {
                     <tbody>
                       {loading && (
                         <tr>
-                          <td colSpan={6} className="text-center py-5">
+                          <td colSpan={5} className="text-center py-5">
                             <div className="d-inline-flex align-items-center gap-2 text-muted">
                               <Spinner color="primary" />
                               <span>Loading audit logs...</span>
@@ -440,11 +420,10 @@ const AuditLogsPage: React.FC = () => {
                             </td>
                             <td>
                               <Badge color={getActionColor(log.action)}>
-                                {log.action}
+                                {log.action.charAt(0).toUpperCase() + log.action.slice(1)}
                               </Badge>
                             </td>
-                            <td className="text-capitalize">{log.resource}</td>
-                            <td className="text-muted" style={{ minWidth: "280px" }}>
+                            <td className="text-muted" style={{ minWidth: "320px" }}>
                               {log.details || "-"}
                               {log.ip_location ? (
                                 <div className="small text-muted mt-1">
@@ -460,7 +439,7 @@ const AuditLogsPage: React.FC = () => {
 
                       {!loading && error && (
                         <tr>
-                          <td colSpan={6} className="text-center py-5">
+                          <td colSpan={5} className="text-center py-5">
                             <div className="text-danger mb-3">{error}</div>
                             <Button color="primary" onClick={() => fetchAuditLogs()}>
                               Try Again
@@ -471,7 +450,7 @@ const AuditLogsPage: React.FC = () => {
 
                       {!loading && !error && paged.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="text-center text-muted py-4">
+                          <td colSpan={5} className="text-center text-muted py-4">
                             No audit logs found for the selected filters.
                           </td>
                         </tr>

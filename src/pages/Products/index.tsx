@@ -41,8 +41,8 @@ type SortKey =
   | "revenue_asc"
   | "units_desc"
   | "units_asc"
-  | "aov_desc"
-  | "aov_asc"
+  | "auv_desc"
+  | "auv_asc"
   | "name_asc"
   | "name_desc";
 
@@ -53,7 +53,7 @@ type TopProduct = {
   site_id: SiteId;
   revenue: number;
   units_sold: number;
-  aov_contribution: number;
+  auv: number;
 };
 
 const COLORS = [
@@ -70,9 +70,24 @@ const SITE_OPTIONS: Array<{ id: SiteId; name: string }> = [
 ];
 
 const SITE_COLORS: Record<SiteId, string> = {
-  apc: "primary",   // blue
-  mp: "success",    // green
-  pnp: "warning",   // yellow
+  apc: "primary",
+  mp: "success",
+  pnp: "warning",
+};
+
+const normalizeSiteId = (value: any): SiteId => {
+  const s = String(value ?? "apc").trim().toLowerCase();
+
+  if (s === "apc" || s.includes("american")) return "apc";
+  if (s === "mp" || s.includes("master")) return "mp";
+  if (s === "pnp" || s.includes("patch")) return "pnp";
+
+  return "apc";
+};
+
+const toNumber = (value: any): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
 };
 
 const ProductsPage: React.FC = () => {
@@ -85,7 +100,6 @@ const ProductsPage: React.FC = () => {
   const [siteFilter, setSiteFilter] = useState("all");
   const [sortBy, setSortBy] = useState<SortKey>("revenue_desc");
   const [rowsPerPage, setRowsPerPage] = useState(10);
-
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -99,15 +113,26 @@ const ProductsPage: React.FC = () => {
             ? data.data
             : [];
 
-          const formatted: TopProduct[] = rows.map((p: any, index: number) => ({
-            id: String(p.id ?? p.product_id ?? index),
-            name: String(p.product_name ?? p.name ?? "Unnamed Product"),
-            sku: String(p.sku ?? ""),
-            site_id: String(p.site ?? p.site_id ?? "apc").toLowerCase() as SiteId,
-            revenue: Number(p.revenue ?? 0),
-            units_sold: Number(p.units_sold ?? 0),
-            aov_contribution: Number(p.aov_contribution ?? 0),
-          }));
+          const formatted: TopProduct[] = rows.map((p: any, index: number) => {
+            const revenue = toNumber(p.revenue ?? 0);
+            const unitsSold = toNumber(p.units_sold ?? p.qty_sold ?? p.units ?? 0);
+
+            const backendAuv = toNumber(
+              p.auv ?? p.avg_unit_value ?? p.average_unit_value ?? 0
+            );
+
+            const computedAuv = unitsSold > 0 ? revenue / unitsSold : 0;
+
+            return {
+              id: String(p.id ?? p.product_id ?? index),
+              name: String(p.product_name ?? p.name ?? "Unnamed Product"),
+              sku: String(p.sku ?? ""),
+              site_id: normalizeSiteId(p.site ?? p.site_id ?? "apc"),
+              revenue,
+              units_sold: unitsSold,
+              auv: backendAuv > 0 ? backendAuv : computedAuv,
+            };
+          });
 
           setProducts(formatted);
         } else {
@@ -157,11 +182,11 @@ const ProductsPage: React.FC = () => {
       case "units_asc":
         rows.sort((a, b) => a.units_sold - b.units_sold);
         break;
-      case "aov_desc":
-        rows.sort((a, b) => b.aov_contribution - a.aov_contribution);
+      case "auv_desc":
+        rows.sort((a, b) => b.auv - a.auv);
         break;
-      case "aov_asc":
-        rows.sort((a, b) => a.aov_contribution - b.aov_contribution);
+      case "auv_asc":
+        rows.sort((a, b) => a.auv - b.auv);
         break;
       case "name_desc":
         rows.sort((a, b) => b.name.localeCompare(a.name));
@@ -181,19 +206,21 @@ const ProductsPage: React.FC = () => {
 
   const kpis = useMemo(() => {
     const totalProducts = filteredProducts.length;
-    const totalRevenue = filteredProducts.reduce((sum, p) => sum + Number(p.revenue || 0), 0);
-    const totalUnitsSold = filteredProducts.reduce((sum, p) => sum + Number(p.units_sold || 0), 0);
-    const avgAovContribution =
-      totalProducts > 0
-        ? filteredProducts.reduce((sum, p) => sum + Number(p.aov_contribution || 0), 0) /
-          totalProducts
-        : 0;
+    const totalRevenue = filteredProducts.reduce(
+      (sum, p) => sum + toNumber(p.revenue),
+      0
+    );
+    const totalUnitsSold = filteredProducts.reduce(
+      (sum, p) => sum + toNumber(p.units_sold),
+      0
+    );
+    const auv = totalUnitsSold > 0 ? totalRevenue / totalUnitsSold : 0;
 
     return {
       totalProducts,
       totalRevenue,
       totalUnitsSold,
-      avgAovContribution,
+      auv,
     };
   }, [filteredProducts]);
 
@@ -238,16 +265,16 @@ const ProductsPage: React.FC = () => {
                   >
                     <Package className="text-primary" size={16} />
                   </div>
-	                </div>
-	                <h3 className="mb-1">
-                    {loading ? (
-                      <Spinner size="sm" color="primary" />
-                    ) : (
-                      kpis.totalProducts.toLocaleString()
-                    )}
-                  </h3>
-	                <p className="text-muted mb-0">Total Products</p>
-	              </CardBody>
+                </div>
+                <h3 className="mb-1">
+                  {loading ? (
+                    <Spinner size="sm" color="primary" />
+                  ) : (
+                    kpis.totalProducts.toLocaleString()
+                  )}
+                </h3>
+                <p className="text-muted mb-0">Total Products</p>
+              </CardBody>
             </Card>
           </Col>
 
@@ -262,21 +289,21 @@ const ProductsPage: React.FC = () => {
                     <DollarSign className="text-success" size={16} />
                   </div>
                 </div>
-	                <h3 className="mb-1">
-                    {loading ? (
-                      <Spinner size="sm" color="primary" />
-                    ) : (
-                      <>
-                        $
-                        {kpis.totalRevenue.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </>
-                    )}
-                  </h3>
-	                <p className="text-muted mb-0">Total Revenue</p>
-	              </CardBody>
+                <h3 className="mb-1">
+                  {loading ? (
+                    <Spinner size="sm" color="primary" />
+                  ) : (
+                    <>
+                      $
+                      {kpis.totalRevenue.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </>
+                  )}
+                </h3>
+                <p className="text-muted mb-0">Total Revenue</p>
+              </CardBody>
             </Card>
           </Col>
 
@@ -291,15 +318,15 @@ const ProductsPage: React.FC = () => {
                     <ShoppingCart className="text-warning" size={16} />
                   </div>
                 </div>
-	                <h3 className="mb-1">
-                    {loading ? (
-                      <Spinner size="sm" color="primary" />
-                    ) : (
-                      kpis.totalUnitsSold.toLocaleString()
-                    )}
-                  </h3>
-	                <p className="text-muted mb-0">Total Units Sold</p>
-	              </CardBody>
+                <h3 className="mb-1">
+                  {loading ? (
+                    <Spinner size="sm" color="primary" />
+                  ) : (
+                    kpis.totalUnitsSold.toLocaleString()
+                  )}
+                </h3>
+                <p className="text-muted mb-0">Total Units Sold</p>
+              </CardBody>
             </Card>
           </Col>
 
@@ -314,21 +341,21 @@ const ProductsPage: React.FC = () => {
                     <TrendingUp className="text-info" size={16} />
                   </div>
                 </div>
-	                <h3 className="mb-1">
-                    {loading ? (
-                      <Spinner size="sm" color="primary" />
-                    ) : (
-                      <>
-                        $
-                        {kpis.avgAovContribution.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </>
-                    )}
-                  </h3>
-	                <p className="text-muted mb-0">Avg AOV Contribution</p>
-	              </CardBody>
+                <h3 className="mb-1">
+                  {loading ? (
+                    <Spinner size="sm" color="primary" />
+                  ) : (
+                    <>
+                      $
+                      {kpis.auv.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </>
+                  )}
+                </h3>
+                <p className="text-muted mb-0">AUV</p>
+              </CardBody>
             </Card>
           </Col>
         </Row>
@@ -375,8 +402,8 @@ const ProductsPage: React.FC = () => {
               <option value="revenue_asc">Revenue: Low to High</option>
               <option value="units_desc">Units Sold: High to Low</option>
               <option value="units_asc">Units Sold: Low to High</option>
-              <option value="aov_desc">AOV: High to Low</option>
-              <option value="aov_asc">AOV: Low to High</option>
+              <option value="auv_desc">AUV: High to Low</option>
+              <option value="auv_asc">AUV: Low to High</option>
               <option value="name_asc">Name: A to Z</option>
               <option value="name_desc">Name: Z to A</option>
             </Input>
@@ -390,17 +417,17 @@ const ProductsPage: React.FC = () => {
                 <h6 className="mb-0">Top Products by Revenue</h6>
               </CardHeader>
 
-	              <CardBody style={{ height: 320 }}>
-	                {loading ? (
-	                  <div className="text-center py-5">
-                      <div className="d-inline-flex align-items-center gap-2 text-muted">
-                        <Spinner size="sm" color="primary" />
-                        <span>Loading products...</span>
-                      </div>
+              <CardBody style={{ height: 320 }}>
+                {loading ? (
+                  <div className="text-center py-5">
+                    <div className="d-inline-flex align-items-center gap-2 text-muted">
+                      <Spinner size="sm" color="primary" />
+                      <span>Loading products...</span>
                     </div>
-	                ) : topByRevenue.length === 0 ? (
-	                  <div className="text-center py-5 text-muted">
-	                    No products found for the selected filters.
+                  </div>
+                ) : topByRevenue.length === 0 ? (
+                  <div className="text-center py-5 text-muted">
+                    No products found for the selected filters.
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
@@ -440,16 +467,16 @@ const ProductsPage: React.FC = () => {
                 <h6 className="mb-0">Full Product Catalog Performance</h6>
               </CardHeader>
 
-	              <CardBody>
-	                {loading ? (
-	                  <div className="text-center py-5">
-                      <div className="d-inline-flex align-items-center gap-2 text-muted">
-                        <Spinner size="sm" color="primary" />
-                        <span>Loading products...</span>
-                      </div>
+              <CardBody>
+                {loading ? (
+                  <div className="text-center py-5">
+                    <div className="d-inline-flex align-items-center gap-2 text-muted">
+                      <Spinner size="sm" color="primary" />
+                      <span>Loading products...</span>
                     </div>
-	                ) : (
-	                  <>
+                  </div>
+                ) : (
+                  <>
                     <div className="table-responsive">
                       <table className="table table-hover align-middle mb-0">
                         <thead>
@@ -459,7 +486,7 @@ const ProductsPage: React.FC = () => {
                             <th>Site</th>
                             <th>Revenue</th>
                             <th>Units Sold</th>
-                            <th>AOV Contribution</th>
+                            <th>AUV</th>
                           </tr>
                         </thead>
 
@@ -488,7 +515,7 @@ const ProductsPage: React.FC = () => {
                               <td>{p.units_sold.toLocaleString()}</td>
                               <td>
                                 $
-                                {p.aov_contribution.toLocaleString(undefined, {
+                                {p.auv.toLocaleString(undefined, {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
                                 })}
@@ -508,56 +535,51 @@ const ProductsPage: React.FC = () => {
                     </div>
 
                     <div className="d-flex flex-wrap justify-content-between align-items-center mt-4 pt-3 border-top gap-3">
+                      <div className="d-flex align-items-center gap-2">
+                        <small className="text-muted">Rows per page</small>
+                        <Input
+                          type="select"
+                          value={rowsPerPage}
+                          onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                          style={{ width: 80 }}
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </Input>
+                      </div>
 
-                    {/* LEFT: Rows per page */}
-                    <div className="d-flex align-items-center gap-2">
-                      <small className="text-muted">Rows per page</small>
-                      <Input
-                        type="select"
-                        value={rowsPerPage}
-                        onChange={(e) => setRowsPerPage(Number(e.target.value))}
-                        style={{ width: 80 }}
-                      >
-                        <option value={10}>10</option>
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </Input>
+                      <div className="text-center flex-grow-1">
+                        <small className="text-muted">
+                          Showing {startRow} - {endRow} of {sortedProducts.length}
+                        </small>
+                      </div>
+
+                      <div className="d-flex align-items-center gap-2">
+                        <Button
+                          color="light"
+                          className="border"
+                          disabled={page <= 1}
+                          onClick={() => setPage((p) => p - 1)}
+                        >
+                          <ChevronLeft size={16} />
+                        </Button>
+
+                        <small className="text-muted">
+                          Page {page} of {totalPages}
+                        </small>
+
+                        <Button
+                          color="light"
+                          className="border"
+                          disabled={page >= totalPages}
+                          onClick={() => setPage((p) => p + 1)}
+                        >
+                          <ChevronRight size={16} />
+                        </Button>
+                      </div>
                     </div>
-
-                    {/* MIDDLE: Showing count */}
-                    <div className="text-center flex-grow-1">
-                      <small className="text-muted">
-                        Showing {startRow} - {endRow} of {sortedProducts.length}
-                      </small>
-                    </div>
-
-                    {/* RIGHT: Pagination */}
-                    <div className="d-flex align-items-center gap-2">
-                      <Button
-                        color="light"
-                        className="border"
-                        disabled={page <= 1}
-                        onClick={() => setPage((p) => p - 1)}
-                      >
-                        <ChevronLeft size={16} />
-                      </Button>
-
-                      <small className="text-muted">
-                        Page {page} of {totalPages}
-                      </small>
-
-                      <Button
-                        color="light"
-                        className="border"
-                        disabled={page >= totalPages}
-                        onClick={() => setPage((p) => p + 1)}
-                      >
-                        <ChevronRight size={16} />
-                      </Button>
-                    </div>
-
-                  </div>
                   </>
                 )}
               </CardBody>
