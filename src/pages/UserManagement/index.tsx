@@ -63,7 +63,7 @@ const roles: Role[] = ["admin", "manager", "staff"];
 const UserManagementPage: React.FC = () => {
   document.title = "User Management | APC Sales Analytics";
   const { hasPermission } = usePermissions();
-  const rolePermissions = getRolePermissionsMap();
+  const [rolePermissions, setRolePermissions] = useState(getRolePermissionsMap());
   const apipost = new APIClient();
   const authUser: any = getAuthUser();
 
@@ -189,6 +189,17 @@ const UserManagementPage: React.FC = () => {
 
   useEffect(() => {
     fetchUsers();
+  }, []);
+
+  useEffect(() => {
+    const syncRolePermissions = () => {
+      setRolePermissions(getRolePermissionsMap());
+    };
+
+    window.addEventListener("permissions-updated", syncRolePermissions);
+    return () => {
+      window.removeEventListener("permissions-updated", syncRolePermissions);
+    };
   }, []);
 
   const filteredUsers = useMemo(() => {
@@ -671,3 +682,4 @@ const UserManagementPage: React.FC = () => {
 };
 
 export default UserManagementPage;
+

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { getLoggedinUser } from "../../helpers/api_helper";
+import { APIClient, getLoggedinUser } from "../../helpers/api_helper";
 import {
   hasPermission as checkPermission,
+  hydrateRolePermissionsMap,
   normalizeUserRole,
   resolveUserPermissions,
 } from "../../helpers/permissions";
@@ -11,9 +12,40 @@ const useProfile = () => {
   const [userProfile, setUserProfile] = useState<any>(null);
 
   useEffect(() => {
-    const userProfileSession = getLoggedinUser();
-    setUserProfile(userProfileSession ? userProfileSession : null);
-    setLoading(false);
+    let mounted = true;
+
+    const loadProfile = async () => {
+      const userProfileSession = getLoggedinUser();
+      if (!mounted) return;
+
+      setUserProfile(userProfileSession ? userProfileSession : null);
+
+      if (!userProfileSession?.id) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const api = new APIClient();
+        const response: any = await api.post("/roles/list", { uid: userProfileSession.id });
+        if (Array.isArray(response?.roles)) {
+          hydrateRolePermissionsMap(response.roles);
+          setUserProfile(getLoggedinUser());
+        }
+      } catch (error) {
+        console.error("Failed to load role permissions:", error);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadProfile();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const token = userProfile && (userProfile["token"] || userProfile["csrf_token"]);

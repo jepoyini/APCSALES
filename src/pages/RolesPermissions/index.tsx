@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { KeyRound, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import {
   Badge,
@@ -15,14 +15,17 @@ import {
 } from "reactstrap";
 import Swal from "sweetalert2";
 import BreadCrumb from "../../Components/Common/BreadCrumb";
+import { APIClient } from "../../helpers/api_helper";
+import { getAuthUser } from "../../helpers/auth_storage";
 import {
   AppPermission,
   AppRole,
   getAvailablePermissions,
   getDefaultRolePermissions,
   getRolePermissionsMap,
-  saveRolePermissionsMap,
+  hydrateRolePermissionsMap,
   resetRolePermissionsMap,
+  saveRolePermissionsMap,
 } from "../../helpers/permissions";
 
 type RoleConfig = Record<AppRole, AppPermission[]>;
@@ -39,6 +42,12 @@ const ROLE_COLORS: Record<AppRole, string> = {
   staff: "success",
 };
 
+const ROLE_IDS: Record<AppRole, number> = {
+  admin: 1,
+  manager: 2,
+  staff: 3,
+};
+
 const roles: AppRole[] = ["admin", "manager", "staff"];
 
 const groupPermissionLabel = (permission: AppPermission) => {
@@ -49,11 +58,93 @@ const groupPermissionLabel = (permission: AppPermission) => {
   };
 };
 
+const normalizeApiRole = (role: any): AppRole => {
+  const roleId = Number(role?.id ?? role?.role_id ?? role?.roleId);
+  const roleName = String(role?.name ?? role?.role ?? role?.role_name ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (roleId === 1 || roleName === "admin") return "admin";
+  if (roleId === 2 || roleName === "manager") return "manager";
+  return "staff";
+};
+
 const RolesPermissionsPage: React.FC = () => {
   document.title = "Manage Roles & Permissions | APC Sales Analytics";
 
+  const apipost = new APIClient();
+  const authUser: any = getAuthUser();
   const [rolePermissions, setRolePermissions] = useState<RoleConfig>(getRolePermissionsMap());
+  const [roleIds, setRoleIds] = useState<Record<AppRole, number | null>>({
+    admin: null,
+    manager: null,
+    staff: null,
+  });
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const syncRolePermissions = () => {
+      setRolePermissions(getRolePermissionsMap());
+    };
+
+    window.addEventListener("permissions-updated", syncRolePermissions);
+    return () => {
+      window.removeEventListener("permissions-updated", syncRolePermissions);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchRoles = async () => {
+      try {
+        setLoading(true);
+        const response: any = await apipost.post("/roles/list", { uid: authUser?.id });
+        const rows = Array.isArray(response?.roles) ? response.roles : [];
+
+        if (rows.length > 0) {
+          const nextIds: Record<AppRole, number | null> = {
+            admin: null,
+            manager: null,
+            staff: null,
+          };
+
+          rows.forEach((role) => {
+            const normalizedRole = normalizeApiRole(role);
+            nextIds[normalizedRole] = Number(role?.id) || null;
+          });
+
+          const nextPermissions = hydrateRolePermissionsMap(rows);
+          if (mounted) {
+            setRoleIds(nextIds);
+            setRolePermissions(nextPermissions);
+          }
+        } else if (mounted) {
+          setRolePermissions(getRolePermissionsMap());
+        }
+      } catch (error) {
+        console.error("Failed to fetch roles:", error);
+        if (mounted) {
+          await Swal.fire({
+            icon: "error",
+            text: "Failed to load roles and permissions from the API.",
+            confirmButtonText: "OK",
+          });
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchRoles();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const groupedPermissions = useMemo(() => {
     const groups = new Map<string, AppPermission[]>();
@@ -95,15 +186,34 @@ const RolesPermissionsPage: React.FC = () => {
     });
   };
 
+  const persistRoles = async (nextPermissions: RoleConfig) => {
+    for (const role of roles) {
+      await apipost.post("/roles/save", {
+        uid: authUser?.id,
+        id: roleIds[role] ?? undefined,
+        name: ROLE_LABELS[role],
+        permissions: nextPermissions[role],
+      });
+    }
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
+      await persistRoles(rolePermissions);
       const next = saveRolePermissionsMap(rolePermissions);
       setRolePermissions(next);
 
       await Swal.fire({
         icon: "success",
         text: "Roles and permissions have been updated.",
+        confirmButtonText: "OK",
+      });
+    } catch (error: any) {
+      console.error("Failed to save roles:", error);
+      await Swal.fire({
+        icon: "error",
+        text: typeof error === "string" ? error : "Failed to save roles and permissions.",
         confirmButtonText: "OK",
       });
     } finally {
@@ -123,14 +233,27 @@ const RolesPermissionsPage: React.FC = () => {
 
     if (!result.isConfirmed) return;
 
-    const defaults = resetRolePermissionsMap();
-    setRolePermissions(defaults);
+    try {
+      setSaving(true);
+      const defaults = resetRolePermissionsMap();
+      await persistRoles(defaults);
+      setRolePermissions(defaults);
 
-    await Swal.fire({
-      icon: "success",
-      text: "Default role permissions restored.",
-      confirmButtonText: "OK",
-    });
+      await Swal.fire({
+        icon: "success",
+        text: "Default role permissions restored.",
+        confirmButtonText: "OK",
+      });
+    } catch (error: any) {
+      console.error("Failed to reset roles:", error);
+      await Swal.fire({
+        icon: "error",
+        text: typeof error === "string" ? error : "Failed to reset role permissions.",
+        confirmButtonText: "OK",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -155,7 +278,7 @@ const RolesPermissionsPage: React.FC = () => {
                 color="light"
                 className="border d-inline-flex align-items-center gap-2"
                 onClick={handleReset}
-                disabled={saving}
+                disabled={saving || loading}
               >
                 <RotateCcw size={14} /> Reset Defaults
               </Button>
@@ -163,7 +286,7 @@ const RolesPermissionsPage: React.FC = () => {
                 color="primary"
                 className="d-inline-flex align-items-center gap-2"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || loading}
               >
                 <Save size={14} /> {saving ? "Saving..." : "Save Changes"}
               </Button>
@@ -181,7 +304,9 @@ const RolesPermissionsPage: React.FC = () => {
                     <KeyRound size={16} className="text-muted" />
                   </div>
                   <h3 className="mb-1">{total}</h3>
-                  <p className="text-muted mb-0">Granted permissions</p>
+                  <p className="text-muted mb-0">
+                    {loading ? "Loading permissions..." : "Granted permissions"}
+                  </p>
                 </CardBody>
               </Card>
             </Col>
@@ -228,6 +353,7 @@ const RolesPermissionsPage: React.FC = () => {
                                     type="checkbox"
                                     checked={rolePermissions[role].includes(permission)}
                                     onChange={() => togglePermission(role, permission)}
+                                    disabled={saving || loading}
                                   />
                                 </FormGroup>
                               </td>
@@ -282,3 +408,4 @@ const RolesPermissionsPage: React.FC = () => {
 };
 
 export default RolesPermissionsPage;
+

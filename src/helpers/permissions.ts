@@ -1,3 +1,5 @@
+import { getAuthUser, setAuthUser } from "./auth_storage";
+
 export const APP_PERMISSIONS = {
   dashboardView: "dashboard.view",
   profileView: "profile.view",
@@ -17,10 +19,9 @@ export const APP_PERMISSIONS = {
   auditLogsView: "audit_logs.view",
 } as const;
 
-export type AppPermission =
-  (typeof APP_PERMISSIONS)[keyof typeof APP_PERMISSIONS];
-
+export type AppPermission = (typeof APP_PERMISSIONS)[keyof typeof APP_PERMISSIONS];
 export type AppRole = "admin" | "manager" | "staff";
+export type RolePermissionsMap = Record<AppRole, AppPermission[]>;
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -35,9 +36,7 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   employee: "staff",
 };
 
-const ROLE_PERMISSIONS_STORAGE_KEY = "rolePermissionOverrides";
-
-const DEFAULT_ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
+const DEFAULT_ROLE_PERMISSIONS: RolePermissionsMap = {
   admin: Object.values(APP_PERMISSIONS),
   manager: [
     APP_PERMISSIONS.dashboardView,
@@ -70,19 +69,23 @@ const DEFAULT_ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
 
 const AVAILABLE_PERMISSIONS = Object.values(APP_PERMISSIONS);
 
-const isAppPermission = (value: string): value is AppPermission => {
-  return AVAILABLE_PERMISSIONS.includes(value as AppPermission);
+let rolePermissionsCache: RolePermissionsMap = {
+  admin: [...DEFAULT_ROLE_PERMISSIONS.admin],
+  manager: [...DEFAULT_ROLE_PERMISSIONS.manager],
+  staff: [...DEFAULT_ROLE_PERMISSIONS.staff],
 };
 
-const sanitizePermissionList = (permissions: string[]): AppPermission[] => {
-  return Array.from(
+const isAppPermission = (value: string): value is AppPermission =>
+  AVAILABLE_PERMISSIONS.includes(value as AppPermission);
+
+const sanitizePermissionList = (permissions: string[]): AppPermission[] =>
+  Array.from(
     new Set(
       permissions
         .map((permission) => permission.trim())
         .filter((permission): permission is AppPermission => isAppPermission(permission))
     )
   );
-};
 
 const emitPermissionsUpdated = () => {
   if (typeof window !== "undefined") {
@@ -90,80 +93,94 @@ const emitPermissionsUpdated = () => {
   }
 };
 
-export const getAvailablePermissions = (): AppPermission[] => AVAILABLE_PERMISSIONS;
-
-export const getDefaultRolePermissions = (): Record<AppRole, AppPermission[]> => ({
-  admin: [...DEFAULT_ROLE_PERMISSIONS.admin],
-  manager: [...DEFAULT_ROLE_PERMISSIONS.manager],
-  staff: [...DEFAULT_ROLE_PERMISSIONS.staff],
+const cloneRolePermissionsMap = (value: RolePermissionsMap): RolePermissionsMap => ({
+  admin: [...value.admin],
+  manager: [...value.manager],
+  staff: [...value.staff],
 });
 
-export const getRolePermissionsMap = (): Record<AppRole, AppPermission[]> => {
-  const defaults = getDefaultRolePermissions();
+export const getAvailablePermissions = (): AppPermission[] => AVAILABLE_PERMISSIONS;
 
-  if (typeof window === "undefined") {
-    return defaults;
-  }
+export const getDefaultRolePermissions = (): RolePermissionsMap =>
+  cloneRolePermissionsMap(DEFAULT_ROLE_PERMISSIONS);
 
-  const raw = window.localStorage.getItem(ROLE_PERMISSIONS_STORAGE_KEY);
-  if (!raw) {
-    return defaults;
-  }
+export const getRolePermissionsMap = (): RolePermissionsMap =>
+  cloneRolePermissionsMap(rolePermissionsCache);
 
-  try {
-    const parsed = JSON.parse(raw) as Partial<Record<AppRole, string[]>>;
-    return {
-      admin: sanitizePermissionList(parsed.admin ?? defaults.admin),
-      manager: sanitizePermissionList(parsed.manager ?? defaults.manager),
-      staff: sanitizePermissionList(parsed.staff ?? defaults.staff),
-    };
-  } catch {
-    return defaults;
-  }
+export const normalizeUserRole = (user?: any): AppRole => {
+  const roleId = Number(user?.role_id ?? user?.roleId ?? user?.rank_id ?? user?.rankId);
+  if (roleId === 1) return "admin";
+  if (roleId === 2) return "manager";
+  if (roleId === 3) return "staff";
+
+  const roleValue = String(
+    user?.role ?? user?.rank ?? user?.role_name ?? user?.roleName ?? user?.name ?? ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return ROLE_ALIASES[roleValue] || "staff";
+};
+
+const syncAuthUserPermissions = (rolePermissions: RolePermissionsMap) => {
+  const authUser = getAuthUser<any>();
+  if (!authUser) return;
+
+  const role = normalizeUserRole(authUser);
+  setAuthUser({
+    ...authUser,
+    permissions: [...rolePermissions[role]],
+  });
+};
+
+export const setRolePermissionsMap = (
+  value: Partial<Record<AppRole, string[]>>
+): RolePermissionsMap => {
+  const next: RolePermissionsMap = {
+    admin: sanitizePermissionList(value.admin ?? rolePermissionsCache.admin),
+    manager: sanitizePermissionList(value.manager ?? rolePermissionsCache.manager),
+    staff: sanitizePermissionList(value.staff ?? rolePermissionsCache.staff),
+  };
+
+  rolePermissionsCache = cloneRolePermissionsMap(next);
+  syncAuthUserPermissions(rolePermissionsCache);
+  emitPermissionsUpdated();
+  return getRolePermissionsMap();
 };
 
 export const saveRolePermissionsMap = (
   value: Partial<Record<AppRole, string[]>>
-): Record<AppRole, AppPermission[]> => {
-  const current = getRolePermissionsMap();
-  const next: Record<AppRole, AppPermission[]> = {
-    admin: sanitizePermissionList(value.admin ?? current.admin),
-    manager: sanitizePermissionList(value.manager ?? current.manager),
-    staff: sanitizePermissionList(value.staff ?? current.staff),
-  };
+): RolePermissionsMap => setRolePermissionsMap(value);
 
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(ROLE_PERMISSIONS_STORAGE_KEY, JSON.stringify(next));
-  }
-
-  emitPermissionsUpdated();
-  return next;
-};
-
-export const resetRolePermissionsMap = (): Record<AppRole, AppPermission[]> => {
-  const defaults = getDefaultRolePermissions();
-
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem(ROLE_PERMISSIONS_STORAGE_KEY);
-  }
-
-  emitPermissionsUpdated();
-  return defaults;
-};
-
-export const ROLE_PERMISSIONS = getDefaultRolePermissions();
+export const resetRolePermissionsMap = (): RolePermissionsMap =>
+  setRolePermissionsMap(getDefaultRolePermissions());
 
 const parsePermissionValue = (value: unknown): string[] => {
   if (!value) return [];
 
   if (Array.isArray(value)) {
-    return value
-      .flatMap((item) => parsePermissionValue(item))
-      .filter(Boolean);
+    return value.flatMap((item) => parsePermissionValue(item)).filter(Boolean);
   }
 
   if (typeof value === "string") {
-    return value
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (
+      (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+      (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    ) {
+      try {
+        return parsePermissionValue(JSON.parse(trimmed));
+      } catch {
+        return trimmed
+          .split(/[,\n|]/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+    }
+
+    return trimmed
       .split(/[,\n|]/)
       .map((item) => item.trim())
       .filter(Boolean);
@@ -188,20 +205,23 @@ const parsePermissionValue = (value: unknown): string[] => {
   return [];
 };
 
-export const normalizeUserRole = (user?: any): AppRole => {
-  const roleId = Number(user?.role_id ?? user?.roleId ?? user?.rank_id ?? user?.rankId);
-  if (roleId === 1) return "admin";
-  if (roleId === 2) return "manager";
-  if (roleId === 3) return "staff";
+export const hydrateRolePermissionsMap = (roles: any[]): RolePermissionsMap => {
+  const defaults = getDefaultRolePermissions();
+  const next: RolePermissionsMap = {
+    admin: [...defaults.admin],
+    manager: [...defaults.manager],
+    staff: [...defaults.staff],
+  };
 
-  const roleValue = String(
-    user?.role ?? user?.rank ?? user?.role_name ?? user?.roleName ?? ""
-  )
-    .trim()
-    .toLowerCase();
+  roles.forEach((roleRecord) => {
+    const role = normalizeUserRole(roleRecord);
+    next[role] = sanitizePermissionList(parsePermissionValue(roleRecord.permissions));
+  });
 
-  return ROLE_ALIASES[roleValue] || "staff";
+  return setRolePermissionsMap(next);
 };
+
+export const ROLE_PERMISSIONS = getDefaultRolePermissions();
 
 export const resolveUserPermissions = (user?: any): string[] => {
   if (!user) return [];
