@@ -552,6 +552,304 @@ class AnalyticsController extends ResourceController
         ]);
     }
 
+    public function addUser()
+    {
+        global $conn;
+
+        $postData = json_decode(file_get_contents("php://input"), true);
+        if (!$postData) {
+            $postData = $_POST;
+        }
+
+        $username  = trim($postData['username'] ?? '');
+        $firstname = trim($postData['firstname'] ?? '');
+        $lastname  = trim($postData['lastname'] ?? '');
+        $email     = trim($postData['email'] ?? '');
+        $phone     = trim($postData['phone'] ?? '');
+        $role_id   = (int)($postData['role_id'] ?? 0);
+        $status    = trim($postData['status'] ?? 'active');
+        $password  = $postData['password'] ?? '';
+
+        if (!$username || !$firstname || !$lastname || !$email || !$password || !$role_id) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Missing required fields."
+            ]);
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Invalid email address."
+            ]);
+        }
+
+        if (!in_array($role_id, [1, 2, 3], true)) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Invalid role."
+            ]);
+        }
+
+        if (!in_array(strtolower($status), ['active', 'inactive'], true)) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Invalid status."
+            ]);
+        }
+
+        try {
+            $check = "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1";
+            $stmt  = $conn->prepare($check);
+            $stmt->bind_param("ss", $username, $email);
+            $stmt->execute();
+            $result   = $stmt->get_result();
+            $existing = $result->fetch_assoc();
+
+            if ($existing) {
+                return $this->response->setJSON([
+                    "status"  => "error",
+                    "message" => "Username or email already exists."
+                ]);
+            }
+
+            $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+
+            $sql = "INSERT INTO users
+                (
+                    username,
+                    firstname,
+                    lastname,
+                    role_id,
+                    email,
+                    phone,
+                    password,
+                    status,
+                    date_created,
+                    date_updated,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW(), NOW())";
+
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param(
+                "sssissss",
+                $username,
+                $firstname,
+                $lastname,
+                $role_id,
+                $email,
+                $phone,
+                $hashedPassword,
+                $status
+            );
+            $stmt->execute();
+
+            $newId = $conn->insert_id;
+
+            $fetch = "SELECT
+                        id,
+                        username,
+                        firstname,
+                        lastname,
+                        email,
+                        phone,
+                        role_id,
+                        status,
+                        date_created
+                    FROM users
+                    WHERE id = ?
+                    LIMIT 1";
+            $stmt = $conn->prepare($fetch);
+            $stmt->bind_param("i", $newId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user   = $result->fetch_assoc();
+
+            return $this->response->setJSON([
+                "status"  => "success",
+                "message" => "User added successfully.",
+                "user"    => $user
+            ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => $e->getMessage()
+            ]);
+        }
+    }
+
+    public function updateUser()
+    {
+        global $conn;
+
+        $postData = json_decode(file_get_contents("php://input"), true);
+        if (!$postData) {
+            $postData = $_POST;
+        }
+
+        $id        = (int)($postData['id'] ?? 0);
+        $username  = trim($postData['username'] ?? '');
+        $firstname = trim($postData['firstname'] ?? '');
+        $lastname  = trim($postData['lastname'] ?? '');
+        $email     = trim($postData['email'] ?? '');
+        $phone     = trim($postData['phone'] ?? '');
+        $role_id   = (int)($postData['role_id'] ?? 0);
+        $status    = trim($postData['status'] ?? 'active');
+        $password  = $postData['password'] ?? '';
+
+        if (!$id || !$username || !$firstname || !$lastname || !$email || !$role_id) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Missing required fields."
+            ]);
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Invalid email address."
+            ]);
+        }
+
+        if (!in_array($role_id, [1, 2, 3], true)) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Invalid role."
+            ]);
+        }
+
+        if (!in_array(strtolower($status), ['active', 'inactive'], true)) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => "Invalid status."
+            ]);
+        }
+
+        try {
+            $exists = "SELECT id FROM users WHERE id = ? LIMIT 1";
+            $stmt   = $conn->prepare($exists);
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user   = $result->fetch_assoc();
+
+            if (!$user) {
+                return $this->response->setJSON([
+                    "status"  => "error",
+                    "message" => "User not found."
+                ]);
+            }
+
+            $check = "SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ? LIMIT 1";
+            $stmt  = $conn->prepare($check);
+            $stmt->bind_param("ssi", $username, $email, $id);
+            $stmt->execute();
+            $result    = $stmt->get_result();
+            $duplicate = $result->fetch_assoc();
+
+            if ($duplicate) {
+                return $this->response->setJSON([
+                    "status"  => "error",
+                    "message" => "Username or email already exists."
+                ]);
+            }
+
+            if ($password !== '') {
+                $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+
+                $sql = "UPDATE users
+                        SET username = ?,
+                            firstname = ?,
+                            lastname = ?,
+                            email = ?,
+                            phone = ?,
+                            role_id = ?,
+                            status = ?,
+                            password = ?,
+                            date_updated = NOW(),
+                            updated_at = NOW()
+                        WHERE id = ?
+                        LIMIT 1";
+
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param(
+                    "sssssisssi",
+                    $username,
+                    $firstname,
+                    $lastname,
+                    $email,
+                    $phone,
+                    $role_id,
+                    $status,
+                    $hashedPassword,
+                    $id
+                );
+            } else {
+                $sql = "UPDATE users
+                        SET username = ?,
+                            firstname = ?,
+                            lastname = ?,
+                            email = ?,
+                            phone = ?,
+                            role_id = ?,
+                            status = ?,
+                            date_updated = NOW(),
+                            updated_at = NOW()
+                        WHERE id = ?
+                        LIMIT 1";
+
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param(
+                    "sssssissi",
+                    $username,
+                    $firstname,
+                    $lastname,
+                    $email,
+                    $phone,
+                    $role_id,
+                    $status,
+                    $id
+                );
+            }
+
+            $stmt->execute();
+
+            $fetch = "SELECT
+                        id,
+                        username,
+                        firstname,
+                        lastname,
+                        email,
+                        phone,
+                        role_id,
+                        status,
+                        date_created
+                    FROM users
+                    WHERE id = ?
+                    LIMIT 1";
+            $stmt = $conn->prepare($fetch);
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user   = $result->fetch_assoc();
+
+            return $this->response->setJSON([
+                "status"  => "success",
+                "message" => "User updated successfully.",
+                "user"    => $user
+            ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setJSON([
+                "status"  => "error",
+                "message" => $e->getMessage()
+            ]);
+        }
+    }
+
     public function customers()
     {
         global $conn;
