@@ -70,6 +70,18 @@ const Register = () => {
 
   const { success, error, registrationError, message } = useSelector(registerData);
 
+  const registrationFieldErrors =
+    registrationError && typeof registrationError === "object" && !Array.isArray(registrationError)
+      ? registrationError
+      : null;
+
+  const registrationErrorLines =
+    typeof registrationError === "string"
+      ? [registrationError]
+      : registrationFieldErrors
+      ? Object.values(registrationFieldErrors)
+      : ["Registration failed"];
+
   useEffect(() => {
     if (success) {
       setLoader(false);
@@ -77,6 +89,9 @@ const Register = () => {
     }
     if (error) {
       setLoader(false);
+      if (registrationFieldErrors) {
+        validation.setErrors(registrationFieldErrors as Record<string, string>);
+      }
     }
 
     const timer = setTimeout(() => {
@@ -84,7 +99,7 @@ const Register = () => {
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [dispatch, success, error, history]);
+  }, [dispatch, success, error, history, registrationFieldErrors]);
 
   document.title = "Sign Up | APC Sales Analytics";
 
@@ -129,8 +144,10 @@ const Register = () => {
                         ) : null}
 
                         {error ? (
-                          <Alert color="danger">
-                            {registrationError || "Registration failed"}
+                          <Alert color="danger" className="mb-4">
+                            <div style={{ whiteSpace: "pre-line" }}>
+                              {registrationErrorLines.join("\n")}
+                            </div>
                           </Alert>
                         ) : null}
 

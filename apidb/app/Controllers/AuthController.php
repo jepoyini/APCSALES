@@ -24,7 +24,7 @@ class AuthController extends ResourceController
         ];
 
         if (!$this->validate($rules)) {
-            return $this->response->setJSON(['status'=>'error', 'data' => $this->validator->getErrors()]);
+            return $this->response->setJSON(['status'=>'error', 'message' => $this->validator->getErrors()]);
         }
         $ip = getUserIP(); 
         $ip_location = getIPLocation($ip); 
